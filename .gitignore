@@ -1,0 +1,7 @@
+.env.runtime
+*.tar*
+*.zip
+.runtime/
+.markwatch.pid
+.markwatch.log
+.hugo_build.lock
