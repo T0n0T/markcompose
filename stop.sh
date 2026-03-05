@@ -21,7 +21,7 @@ die() {
   exit 1
 }
 
-WITH_VOLUMES="false"
+REMOVE_VOLUMES="false"
 
 if (( $# > 1 )); then
   usage
@@ -31,7 +31,7 @@ fi
 if (( $# == 1 )); then
   case "$1" in
     -v)
-      WITH_VOLUMES="true"
+      REMOVE_VOLUMES="true"
       ;;
     *)
       usage
@@ -43,7 +43,7 @@ fi
 docker compose version >/dev/null 2>&1 || die "docker compose is not available"
 
 ARGS=(down)
-if [[ "${WITH_VOLUMES}" == "true" ]]; then
+if [[ "${REMOVE_VOLUMES}" == "true" ]]; then
   ARGS+=(--volumes)
 fi
 
@@ -58,11 +58,11 @@ fi
 )
 
 if [[ -f "${MARKWATCH_PID_FILE}" ]]; then
-  PID="$(cat "${MARKWATCH_PID_FILE}" 2>/dev/null || true)"
+  WATCHER_PID="$(cat "${MARKWATCH_PID_FILE}" 2>/dev/null || true)"
   rm -f "${MARKWATCH_PID_FILE}"
-  if [[ "${PID}" =~ ^[0-9]+$ ]] && kill -0 "${PID}" 2>/dev/null; then
-    echo "Stopping markwatch (PID ${PID})"
-    kill "${PID}" 2>/dev/null || true
+  if [[ "${WATCHER_PID}" =~ ^[0-9]+$ ]] && kill -0 "${WATCHER_PID}" 2>/dev/null; then
+    echo "Stopping markwatch (PID ${WATCHER_PID})"
+    kill "${WATCHER_PID}" 2>/dev/null || true
   fi
 fi
 

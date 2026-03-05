@@ -1,0 +1,28 @@
+# MarkCompose content adapter configuration.
+#
+# This adapter converts "plain workspace Markdown" into Hugo-friendly content
+# at build time, without modifying the original Markdown files.
+
+# Output directory for generated Hugo content (relative to this repo root).
+output_dir = ".runtime/content-adapted"
+
+# Root-level Markdown files (directly under MARKDOWN_DIR) will be placed under
+# this section. Set to "" to keep them at Hugo content root.
+default_section = "posts"
+
+# When a title is inferred from the first H1, remove that H1 from the body to
+# avoid duplicate titles in Hugo themes.
+strip_first_h1 = true
+
+# Default `draft` when not provided by front matter or sidecar meta.
+default_draft = false
+
+# Rewrite links to other *.md files into Hugo internal links using `relref`.
+rewrite_md_links = true
+
+# Optional sidecar metadata files appended to the markdown filename.
+# Example: "foo.md.meta.yaml"
+sidecar_exts = [".meta.yaml", ".meta.yml"]
+
+# Directories under MARKDOWN_DIR to ignore entirely.
+ignore_dirs = [".git", ".runtime"]

@@ -6,13 +6,14 @@ ENV_FILE="${SCRIPT_DIR}/.env.runtime"
 RUNTIME_DIR="${SCRIPT_DIR}/.runtime"
 MARKWATCH_PID_FILE="${SCRIPT_DIR}/.markwatch.pid"
 MARKWATCH_LOG_FILE="${SCRIPT_DIR}/.markwatch.log"
+BUILD_SCRIPT="${SCRIPT_DIR}/build.sh"
 
 DEFAULT_MARKFLOW_URL="https://github.com/T0n0T/markflow/releases/latest/download/markflow-dist.tar.gz"
 DEFAULT_MARKWATCH_BASE_URL="https://github.com/T0n0T/markwatch/releases/latest/download"
 DEFAULT_MARKWATCH_URL=""
 DEFAULT_MARKWATCH_TARGET=""
-DEFAULT_MARKFLOW_ARCHIVE="${SCRIPT_DIR}/markflow-dist.tar.gz"
-DEFAULT_MARKWATCH_ARCHIVE=""
+DEFAULT_MARKFLOW_ARCHIVE_PATH="${RUNTIME_DIR}/markflow-dist.tar.gz"
+DEFAULT_MARKWATCH_ARCHIVE_PATH=""
 
 usage() {
   cat <<'USAGE'
@@ -20,11 +21,10 @@ Usage:
   start.sh [options] <markdown_dir>
 
 Options:
-  --use-default-resources      Use default markflow + markwatch release packages
-                               (default behavior; kept for compatibility).
   --use-custom-editor <dir>    Use custom editor static directory instead of bundled markflow dist.
   --use-custom-watcher <cmd>   Use custom watcher command string instead of bundled markwatch.
-  --pic-dir <name>             Asset folder name under markdown dir (default: _assets).
+  --content-adapter <script>   Enable content adaptation using the given adapter script path.
+  -a, --assets-dir <dir>       Asset folder name under markdown dir (default: _assets).
   -p, --host-port <port>       Host port (default: 8080).
   --editor-port <port>         Editor host port (default: 8081).
   --no-watch                   Do not start markwatch watcher.
@@ -35,9 +35,10 @@ Options:
 
 Examples:
   ./start.sh /data/blog/md
+  ./start.sh --content-adapter content-adapter/prepare_content.sh /data/blog/md
   ./start.sh --use-custom-watcher "markwatch --some-flag value" /data/blog/md
   ./start.sh --use-custom-editor /data/editor/dist -p 8080 --editor-port 8081 /data/blog/md
-  ./start.sh --pic-dir images /data/blog/md
+  ./start.sh --assets-dir images /data/blog/md
   ./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" -p 8080 --editor-port 8081 /data/blog/md
 USAGE
 }
@@ -86,14 +87,14 @@ check_port() {
   (( port >= 1 && port <= 65535 )) || die "${name} must be in range 1..65535: ${port}"
 }
 
-check_pic_dir() {
-  local pic_dir="$1"
+check_asset_dir() {
+  local asset_dir="$1"
 
-  [[ -n "${pic_dir}" ]] || die "pic_dir must not be empty"
-  [[ "${pic_dir}" != "." && "${pic_dir}" != ".." ]] || die "pic_dir cannot be '.' or '..': ${pic_dir}"
-  [[ "${pic_dir}" != */* ]] || die "pic_dir must be a single folder name without '/': ${pic_dir}"
-  if [[ "${pic_dir}" =~ [[:space:]] ]]; then
-    die "pic_dir contains whitespace, which is unsupported: ${pic_dir}"
+  [[ -n "${asset_dir}" ]] || die "assets_dir must not be empty"
+  [[ "${asset_dir}" != "." && "${asset_dir}" != ".." ]] || die "assets_dir cannot be '.' or '..': ${asset_dir}"
+  [[ "${asset_dir}" != */* ]] || die "assets_dir must be a single folder name without '/': ${asset_dir}"
+  if [[ "${asset_dir}" =~ [[:space:]] ]]; then
+    die "assets_dir contains whitespace, which is unsupported: ${asset_dir}"
   fi
 }
 
@@ -127,20 +128,22 @@ resolve_default_markwatch_package() {
 
   DEFAULT_MARKWATCH_TARGET="${target}"
   DEFAULT_MARKWATCH_URL="${DEFAULT_MARKWATCH_BASE_URL}/markwatch-${target}.tar.gz"
-  DEFAULT_MARKWATCH_ARCHIVE="${SCRIPT_DIR}/markwatch-${target}.tar.gz"
+  DEFAULT_MARKWATCH_ARCHIVE_PATH="${RUNTIME_DIR}/markwatch-${target}.tar.gz"
 }
 
 write_env_file() {
   local markdown_dir="$1"
   local editor_dir="$2"
-  local pic_dir="$3"
+  local asset_dir="$3"
   local host_port="$4"
   local editor_port="$5"
+  local adapter_script="$6"
 
   cat >"${ENV_FILE}" <<ENV
 MARKDOWN_DIR=${markdown_dir}
 EDITOR_STATIC_DIR=${editor_dir}
-PIC_DIR=${pic_dir}
+ASSETS_DIR=${asset_dir}
+ADAPTER_SCRIPT=${adapter_script}
 HOST_PORT=${host_port}
 EDITOR_PORT=${editor_port}
 COMPOSE_PROJECT_NAME=markcompose
@@ -228,67 +231,67 @@ resolve_markwatch_binary_from_dir() {
 }
 
 stop_existing_markwatch() {
-  local pid=""
-  local i=0
+  local existing_pid=""
+  local wait_attempt=0
 
   if [[ ! -f "${MARKWATCH_PID_FILE}" ]]; then
     return 0
   fi
 
-  pid="$(cat "${MARKWATCH_PID_FILE}" 2>/dev/null || true)"
+  existing_pid="$(cat "${MARKWATCH_PID_FILE}" 2>/dev/null || true)"
   rm -f "${MARKWATCH_PID_FILE}"
 
-  [[ "${pid}" =~ ^[0-9]+$ ]] || return 0
-  if ! kill -0 "${pid}" 2>/dev/null; then
+  [[ "${existing_pid}" =~ ^[0-9]+$ ]] || return 0
+  if ! kill -0 "${existing_pid}" 2>/dev/null; then
     return 0
   fi
 
-  echo "Stopping existing markwatch process (PID ${pid})"
-  kill "${pid}" 2>/dev/null || true
-  for (( i = 0; i < 20; i++ )); do
-    if ! kill -0 "${pid}" 2>/dev/null; then
+  echo "Stopping existing markwatch process (PID ${existing_pid})"
+  kill "${existing_pid}" 2>/dev/null || true
+  for (( wait_attempt = 0; wait_attempt < 20; wait_attempt++ )); do
+    if ! kill -0 "${existing_pid}" 2>/dev/null; then
       return 0
     fi
     sleep 0.1
   done
-  kill -9 "${pid}" 2>/dev/null || true
+  kill -9 "${existing_pid}" 2>/dev/null || true
 }
 
 start_markwatch() {
-  local watcher_cmd="$1"
+  local watcher_command="$1"
   local markdown_dir="$2"
-  local use_default_watcher="$3"
+  local default_watcher_enabled="$3"
   local debounce_ms="$4"
   local reconcile_sec="$5"
   local watch_log_level="$6"
-  local build_cmd=""
-  local run_cmd=""
-  local pid=""
+  local build_command=""
+  local run_command=""
+  local watcher_pid=""
 
   stop_existing_markwatch
   touch "${MARKWATCH_LOG_FILE}"
-  build_cmd="$(printf '%q' "${SCRIPT_DIR}/build.sh") $(printf '%q' "${ENV_FILE}")"
+  build_command="$(printf '%q' "${BUILD_SCRIPT}") $(printf '%q' "${ENV_FILE}")"
 
-  run_cmd="${watcher_cmd} --root $(printf '%q' "${markdown_dir}") --workdir $(printf '%q' "${SCRIPT_DIR}") --cmd $(printf '%q' "${build_cmd}") --shell sh"
-  if [[ "${use_default_watcher}" == "true" ]]; then
-    run_cmd="${run_cmd} --debounce-ms $(printf '%q' "${debounce_ms}") --reconcile-sec $(printf '%q' "${reconcile_sec}") --log-level $(printf '%q' "${watch_log_level}")"
+  run_command="${watcher_command} --root $(printf '%q' "${markdown_dir}") --workdir $(printf '%q' "${SCRIPT_DIR}") --cmd $(printf '%q' "${build_command}") --shell sh"
+  if [[ "${default_watcher_enabled}" == "true" ]]; then
+    run_command="${run_command} --debounce-ms $(printf '%q' "${debounce_ms}") --reconcile-sec $(printf '%q' "${reconcile_sec}") --log-level $(printf '%q' "${watch_log_level}")"
   fi
 
   (
     cd "${SCRIPT_DIR}"
-    nohup bash -lc "${run_cmd}" >>"${MARKWATCH_LOG_FILE}" 2>&1 &
+    nohup bash -lc "${run_command}" >>"${MARKWATCH_LOG_FILE}" 2>&1 &
     echo $! >"${MARKWATCH_PID_FILE}"
   )
 
-  pid="$(cat "${MARKWATCH_PID_FILE}" 2>/dev/null || true)"
-  if [[ -z "${pid}" ]] || ! kill -0 "${pid}" 2>/dev/null; then
+  watcher_pid="$(cat "${MARKWATCH_PID_FILE}" 2>/dev/null || true)"
+  if [[ -z "${watcher_pid}" ]] || ! kill -0 "${watcher_pid}" 2>/dev/null; then
     echo "WARN: markwatch failed to start; check log: ${MARKWATCH_LOG_FILE}" >&2
     rm -f "${MARKWATCH_PID_FILE}"
     return 1
   fi
 
   sleep 1
-  if ! kill -0 "${pid}" 2>/dev/null; then
+  if ! kill -0 "${watcher_pid}" 2>/dev/null; then
     echo "WARN: markwatch exited right after startup; check log: ${MARKWATCH_LOG_FILE}" >&2
     rm -f "${MARKWATCH_PID_FILE}"
     return 1
@@ -297,44 +300,45 @@ start_markwatch() {
   return 0
 }
 
-USE_CUSTOM_WATCHER="false"
-USE_CUSTOM_EDITOR="false"
-NO_WATCH="false"
+CUSTOM_WATCHER_ENABLED="false"
+CUSTOM_EDITOR_ENABLED="false"
+WATCH_DISABLED="false"
 DEBOUNCE_MS="800"
 RECONCILE_SEC="600"
 WATCH_LOG_LEVEL="info"
-MARKFLOW_ARCHIVE="${DEFAULT_MARKFLOW_ARCHIVE}"
-MARKWATCH_ARCHIVE=""
-POSITIONAL=()
+MARKFLOW_ARCHIVE_PATH="${DEFAULT_MARKFLOW_ARCHIVE_PATH}"
+WATCHER_ARCHIVE_PATH=""
+POSITIONAL_ARGS=()
 EDITOR_STATIC_DIR=""
-MARKWATCH_CMD=""
-PIC_DIR=""
+WATCHER_COMMAND=""
+ASSETS_DIR=""
+ADAPTER_SCRIPT_PATH=""
 HOST_PORT="8080"
 EDITOR_PORT="8081"
 
 while (( $# > 0 )); do
   case "$1" in
-    --use-default-resources)
-      shift
-      ;;
     --use-custom-watcher)
       (( $# >= 2 )) || die "--use-custom-watcher requires a command string"
-      USE_CUSTOM_WATCHER="true"
-      MARKWATCH_CMD="$2"
+      CUSTOM_WATCHER_ENABLED="true"
+      WATCHER_COMMAND="$2"
       shift 2
       ;;
     --use-custom-editor)
       (( $# >= 2 )) || die "--use-custom-editor requires a directory path"
-      USE_CUSTOM_EDITOR="true"
+      CUSTOM_EDITOR_ENABLED="true"
       EDITOR_STATIC_DIR="$2"
       shift 2
       ;;
-    -a|--attachments-dir)
-      die "$1 is no longer supported. Assets are served from /<pic_dir>/ in Hugo output."
-      ;;
-    --pic-dir)
+    -a|--assets-dir)
       (( $# >= 2 )) || die "$1 requires a folder name"
-      PIC_DIR="$2"
+      ASSETS_DIR="$2"
+      shift 2
+      ;;
+    --content-adapter)
+      (( $# >= 2 )) || die "--content-adapter requires a script path"
+      [[ -n "$2" ]] || die "--content-adapter requires a non-empty script path"
+      ADAPTER_SCRIPT_PATH="$2"
       shift 2
       ;;
     -p|--host-port)
@@ -348,7 +352,7 @@ while (( $# > 0 )); do
       shift 2
       ;;
     --no-watch)
-      NO_WATCH="true"
+      WATCH_DISABLED="true"
       shift
       ;;
     --debounce-ms)
@@ -373,7 +377,7 @@ while (( $# > 0 )); do
     --)
       shift
       while (( $# > 0 )); do
-        POSITIONAL+=("$1")
+        POSITIONAL_ARGS+=("$1")
         shift
       done
       ;;
@@ -381,22 +385,22 @@ while (( $# > 0 )); do
       die "Unknown option: $1"
       ;;
     *)
-      POSITIONAL+=("$1")
+      POSITIONAL_ARGS+=("$1")
       shift
       ;;
   esac
 done
 
-set -- "${POSITIONAL[@]}"
+set -- "${POSITIONAL_ARGS[@]}"
 
 MARKDOWN_DIR=""
-START_WATCHER="false"
-MARKWATCH_BIN=""
+WATCHER_ENABLED="false"
+WATCHER_BINARY_PATH=""
 MARKWATCH_STATUS="not-started"
-USE_DEFAULT_WATCHER="false"
+DEFAULT_WATCHER_ENABLED="false"
 
-if [[ "${NO_WATCH}" != "true" ]]; then
-  START_WATCHER="true"
+if [[ "${WATCH_DISABLED}" != "true" ]]; then
+  WATCHER_ENABLED="true"
 fi
 
 if (( $# != 1 )); then
@@ -405,11 +409,11 @@ if (( $# != 1 )); then
 fi
 
 MARKDOWN_DIR="$1"
-if [[ -z "${PIC_DIR}" ]]; then
-  PIC_DIR="_assets"
+if [[ -z "${ASSETS_DIR}" ]]; then
+  ASSETS_DIR="_assets"
 fi
 
-check_pic_dir "${PIC_DIR}"
+check_asset_dir "${ASSETS_DIR}"
 check_num "${DEBOUNCE_MS}" "debounce-ms"
 check_num "${RECONCILE_SEC}" "reconcile-sec"
 check_port "${HOST_PORT}" "host_port"
@@ -417,66 +421,66 @@ check_port "${EDITOR_PORT}" "editor_port"
 [[ "${HOST_PORT}" != "${EDITOR_PORT}" ]] || die "host_port and editor_port must be different"
 check_docker_compose
 
-if [[ "${USE_CUSTOM_EDITOR}" != "true" ]] || { [[ "${USE_CUSTOM_WATCHER}" != "true" ]] && [[ "${START_WATCHER}" == "true" ]]; }; then
+if [[ "${CUSTOM_EDITOR_ENABLED}" != "true" ]] || { [[ "${CUSTOM_WATCHER_ENABLED}" != "true" ]] && [[ "${WATCHER_ENABLED}" == "true" ]]; }; then
   require_cmd tar
 fi
 
-if [[ "${USE_CUSTOM_EDITOR}" != "true" ]]; then
-  MARKFLOW_EXTRACT_DIR="${RUNTIME_DIR}/markflow"
-  MARKFLOW_DIST_DIR=""
+if [[ "${CUSTOM_EDITOR_ENABLED}" != "true" ]]; then
+  MARKFLOW_EXTRACT_DIR_PATH="${RUNTIME_DIR}/markflow"
+  MARKFLOW_DIST_DIR_PATH=""
 
-  if [[ -d "${MARKFLOW_EXTRACT_DIR}" ]]; then
-    MARKFLOW_DIST_DIR="$(try_resolve_markflow_dist_dir "${MARKFLOW_EXTRACT_DIR}" || true)"
+  if [[ -d "${MARKFLOW_EXTRACT_DIR_PATH}" ]]; then
+    MARKFLOW_DIST_DIR_PATH="$(try_resolve_markflow_dist_dir "${MARKFLOW_EXTRACT_DIR_PATH}" || true)"
   fi
 
-  if [[ -z "${MARKFLOW_DIST_DIR}" ]]; then
-    MARKFLOW_ARCHIVE="$(resolve_or_download_archive "markflow" "${MARKFLOW_ARCHIVE}" "${DEFAULT_MARKFLOW_URL}")"
-    MARKFLOW_ARCHIVE="$(to_abs "${MARKFLOW_ARCHIVE}")"
-    extract_tarball "${MARKFLOW_ARCHIVE}" "${MARKFLOW_EXTRACT_DIR}"
-    MARKFLOW_DIST_DIR="$(resolve_markflow_dist_dir "${MARKFLOW_EXTRACT_DIR}")"
+  if [[ -z "${MARKFLOW_DIST_DIR_PATH}" ]]; then
+    MARKFLOW_ARCHIVE_PATH="$(resolve_or_download_archive "markflow" "${MARKFLOW_ARCHIVE_PATH}" "${DEFAULT_MARKFLOW_URL}")"
+    MARKFLOW_ARCHIVE_PATH="$(to_abs "${MARKFLOW_ARCHIVE_PATH}")"
+    extract_tarball "${MARKFLOW_ARCHIVE_PATH}" "${MARKFLOW_EXTRACT_DIR_PATH}"
+    MARKFLOW_DIST_DIR_PATH="$(resolve_markflow_dist_dir "${MARKFLOW_EXTRACT_DIR_PATH}")"
   else
-    echo "Using existing extracted markflow dist: ${MARKFLOW_DIST_DIR}" >&2
+    echo "Using existing extracted markflow dist: ${MARKFLOW_DIST_DIR_PATH}" >&2
   fi
 
-  EDITOR_STATIC_DIR="${MARKFLOW_DIST_DIR}"
+  EDITOR_STATIC_DIR="${MARKFLOW_DIST_DIR_PATH}"
 fi
 
-if [[ "${START_WATCHER}" == "true" ]] && [[ "${USE_CUSTOM_WATCHER}" != "true" ]]; then
+if [[ "${WATCHER_ENABLED}" == "true" ]] && [[ "${CUSTOM_WATCHER_ENABLED}" != "true" ]]; then
   resolve_default_markwatch_package
-  MARKWATCH_ARCHIVE="${DEFAULT_MARKWATCH_ARCHIVE}"
-  MARKWATCH_EXTRACT_DIR="${RUNTIME_DIR}/markwatch"
-  MARKWATCH_BIN=""
+  WATCHER_ARCHIVE_PATH="${DEFAULT_MARKWATCH_ARCHIVE_PATH}"
+  WATCHER_EXTRACT_DIR="${RUNTIME_DIR}/markwatch"
+  WATCHER_BINARY_PATH=""
 
-  if [[ -d "${MARKWATCH_EXTRACT_DIR}" ]]; then
-    MARKWATCH_BIN="$(resolve_markwatch_binary_from_dir "${MARKWATCH_EXTRACT_DIR}" || true)"
-    if [[ -n "${MARKWATCH_BIN}" ]] && [[ "${MARKWATCH_BIN}" != *"markwatch-${DEFAULT_MARKWATCH_TARGET}"* ]]; then
-      MARKWATCH_BIN=""
+  if [[ -d "${WATCHER_EXTRACT_DIR}" ]]; then
+    WATCHER_BINARY_PATH="$(resolve_markwatch_binary_from_dir "${WATCHER_EXTRACT_DIR}" || true)"
+    if [[ -n "${WATCHER_BINARY_PATH}" ]] && [[ "${WATCHER_BINARY_PATH}" != *"markwatch-${DEFAULT_MARKWATCH_TARGET}"* ]]; then
+      WATCHER_BINARY_PATH=""
     fi
   fi
 
-  if [[ -z "${MARKWATCH_BIN}" ]]; then
-    MARKWATCH_ARCHIVE="$(resolve_or_download_archive "markwatch" "${MARKWATCH_ARCHIVE}" "${DEFAULT_MARKWATCH_URL}")"
-    MARKWATCH_ARCHIVE="$(to_abs "${MARKWATCH_ARCHIVE}")"
-    extract_tarball "${MARKWATCH_ARCHIVE}" "${MARKWATCH_EXTRACT_DIR}"
-    MARKWATCH_BIN="$(resolve_markwatch_binary_from_dir "${MARKWATCH_EXTRACT_DIR}" || true)"
-    [[ -n "${MARKWATCH_BIN}" ]] || die "Cannot find markwatch binary after extracting default package"
+  if [[ -z "${WATCHER_BINARY_PATH}" ]]; then
+    WATCHER_ARCHIVE_PATH="$(resolve_or_download_archive "markwatch" "${WATCHER_ARCHIVE_PATH}" "${DEFAULT_MARKWATCH_URL}")"
+    WATCHER_ARCHIVE_PATH="$(to_abs "${WATCHER_ARCHIVE_PATH}")"
+    extract_tarball "${WATCHER_ARCHIVE_PATH}" "${WATCHER_EXTRACT_DIR}"
+    WATCHER_BINARY_PATH="$(resolve_markwatch_binary_from_dir "${WATCHER_EXTRACT_DIR}" || true)"
+    [[ -n "${WATCHER_BINARY_PATH}" ]] || die "Cannot find markwatch binary after extracting default package"
   else
-    echo "Using existing extracted markwatch binary: ${MARKWATCH_BIN}" >&2
+    echo "Using existing extracted markwatch binary: ${WATCHER_BINARY_PATH}" >&2
   fi
 
-  MARKWATCH_CMD="$(printf '%q' "${MARKWATCH_BIN}")"
-  USE_DEFAULT_WATCHER="true"
+  WATCHER_COMMAND="$(printf '%q' "${WATCHER_BINARY_PATH}")"
+  DEFAULT_WATCHER_ENABLED="true"
 fi
 
 ensure_dir "${MARKDOWN_DIR}"
-ensure_dir_or_create "${MARKDOWN_DIR}/${PIC_DIR}"
-if [[ "${USE_CUSTOM_EDITOR}" == "true" ]]; then
+ensure_dir_or_create "${MARKDOWN_DIR}/${ASSETS_DIR}"
+if [[ "${CUSTOM_EDITOR_ENABLED}" == "true" ]]; then
   ensure_dir "${EDITOR_STATIC_DIR}"
 else
   ensure_dir_or_create "${EDITOR_STATIC_DIR}"
 fi
-if [[ "${START_WATCHER}" == "true" ]]; then
-  [[ -n "${MARKWATCH_CMD//[[:space:]]/}" ]] || die "watcher_cmd must not be empty"
+if [[ "${WATCHER_ENABLED}" == "true" ]]; then
+  [[ -n "${WATCHER_COMMAND//[[:space:]]/}" ]] || die "watcher_command must not be empty"
 fi
 
 MARKDOWN_DIR="$(to_abs "${MARKDOWN_DIR}")"
@@ -484,28 +488,36 @@ EDITOR_STATIC_DIR="$(to_abs "${EDITOR_STATIC_DIR}")"
 
 check_no_spaces "${MARKDOWN_DIR}"
 check_no_spaces "${EDITOR_STATIC_DIR}"
+if [[ -n "${ADAPTER_SCRIPT_PATH}" ]]; then
+  check_no_spaces "${ADAPTER_SCRIPT_PATH}"
+fi
 
-write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${PIC_DIR}" "${HOST_PORT}" "${EDITOR_PORT}"
+write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${ASSETS_DIR}" "${HOST_PORT}" "${EDITOR_PORT}" "${ADAPTER_SCRIPT_PATH}"
 
 echo "Configuration written to ${ENV_FILE}"
 echo "  MARKDOWN_DIR=${MARKDOWN_DIR}"
 echo "  EDITOR_STATIC_DIR=${EDITOR_STATIC_DIR}"
-echo "  PIC_DIR=${PIC_DIR}"
+echo "  ASSETS_DIR=${ASSETS_DIR}"
+if [[ -n "${ADAPTER_SCRIPT_PATH}" ]]; then
+  echo "  ADAPTER_SCRIPT=${ADAPTER_SCRIPT_PATH}"
+else
+  echo "  ADAPTER_SCRIPT=<disabled>"
+fi
 echo "  HOST_PORT=${HOST_PORT}"
 echo "  EDITOR_PORT=${EDITOR_PORT}"
 
-"${SCRIPT_DIR}/build.sh" "${ENV_FILE}"
+"${BUILD_SCRIPT}" "${ENV_FILE}"
 
 (
   cd "${SCRIPT_DIR}"
   docker compose --env-file "${ENV_FILE}" up -d nginx
 )
 
-if [[ "${START_WATCHER}" == "true" ]]; then
-  if [[ "${USE_DEFAULT_WATCHER}" != "true" ]]; then
+if [[ "${WATCHER_ENABLED}" == "true" ]]; then
+  if [[ "${DEFAULT_WATCHER_ENABLED}" != "true" ]]; then
     echo "Custom watcher mode: --debounce-ms/--reconcile-sec/--watch-log-level are ignored."
   fi
-  if start_markwatch "${MARKWATCH_CMD}" "${MARKDOWN_DIR}" "${USE_DEFAULT_WATCHER}" "${DEBOUNCE_MS}" "${RECONCILE_SEC}" "${WATCH_LOG_LEVEL}"; then
+  if start_markwatch "${WATCHER_COMMAND}" "${MARKDOWN_DIR}" "${DEFAULT_WATCHER_ENABLED}" "${DEBOUNCE_MS}" "${RECONCILE_SEC}" "${WATCH_LOG_LEVEL}"; then
     MARKWATCH_STATUS="started"
   else
     MARKWATCH_STATUS="failed"
@@ -515,9 +527,9 @@ fi
 echo "Service started:"
 echo "  Blog:        http://127.0.0.1:${HOST_PORT}/"
 echo "  Editor:      http://127.0.0.1:${EDITOR_PORT}/"
-echo "  Assets:      http://127.0.0.1:${HOST_PORT}/${PIC_DIR}/"
+echo "  Assets:      http://127.0.0.1:${HOST_PORT}/${ASSETS_DIR}/"
 if [[ "${MARKWATCH_STATUS}" == "started" ]]; then
   echo "  Markwatch:   started (PID $(cat "${MARKWATCH_PID_FILE}")), log -> ${MARKWATCH_LOG_FILE}"
-elif [[ "${START_WATCHER}" == "true" ]]; then
+elif [[ "${WATCHER_ENABLED}" == "true" ]]; then
   echo "  Markwatch:   failed to stay running, check log -> ${MARKWATCH_LOG_FILE}"
 fi

@@ -1,0 +1,8 @@
+title: 由 meta 覆盖的标题
+draft: true
+slug: custom-slug-from-meta
+tags:
+  - demo
+  - meta-yml
+params:
+  author: user

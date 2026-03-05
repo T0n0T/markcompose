@@ -1,14 +1,14 @@
-{{- $picDir := getenv "HUGO_PIC_DIR" | default "_assets" -}}
+{{- $assetsDir := getenv "HUGO_ASSETS_DIR" | default "_assets" -}}
 {{- $destination := .Destination -}}
 {{- $url := urls.Parse $destination -}}
-{{- $prefix := printf "%s/" $picDir -}}
+{{- $assetsPathPrefix := printf "%s/" $assetsDir -}}
 
 {{- if not $url.Host -}}
     {{- $path := $url.Path -}}
-    {{- if strings.HasPrefix $path (printf "./%s" $prefix) -}}
+    {{- if strings.HasPrefix $path (printf "./%s" $assetsPathPrefix) -}}
         {{- $path = strings.TrimPrefix "./" $path -}}
     {{- end -}}
-    {{- if strings.HasPrefix $path $prefix -}}
+    {{- if strings.HasPrefix $path $assetsPathPrefix -}}
         {{- $destination = printf "/%s" $path -}}
         {{- with $url.RawQuery -}}
             {{- $destination = printf "%s?%s" $destination . -}}

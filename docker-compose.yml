@@ -3,7 +3,7 @@ services:
     image: docker.io/hugomods/hugo:dart-sass-non-root
     working_dir: /site
     environment:
-      - HUGO_PIC_DIR=${PIC_DIR:-_assets}
+      - HUGO_ASSETS_DIR=${ASSETS_DIR:-_assets}
     volumes:
       - ${MARKDOWN_DIR:?MARKDOWN_DIR is required}:/markdown:ro
       - ./hugo-site:/site

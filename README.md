@@ -5,16 +5,16 @@ Minimal split-port stack for a Hugo blog and a static editor.
 ## What this stack does
 
 - Builds blog HTML with `docker.io/hugomods/hugo:dart-sass`
-- Serves blog static files on `host_port` (default `8080`)
-- Serves editor static files on `editor_port` (default `8081`)
-- Serves markdown-managed assets from Hugo output under `/<pic_dir>/` (default `/_assets/`)
+- Serves blog static files on `HOST_PORT` (default `8080`)
+- Serves editor static files on `EDITOR_PORT` (default `8081`)
+- Serves markdown-managed assets from Hugo output under `/<ASSETS_DIR>/` (default `/_assets/`)
 - Optionally runs a markdown watcher (`markwatch`) for automatic release builds
 
 ## Port mapping
 
-- `http://127.0.0.1:<host_port>/` -> blog static output (`/var/www/blog`)
-- `http://127.0.0.1:<editor_port>/` -> editor static files (`/var/www/editor`)
-- `http://127.0.0.1:<host_port>/<pic_dir>/...` -> markdown assets from Hugo output (`/var/www/blog/<pic_dir>/...`)
+- `http://127.0.0.1:<HOST_PORT>/` -> blog static output (`/var/www/blog`)
+- `http://127.0.0.1:<EDITOR_PORT>/` -> editor static files (`/var/www/editor`)
+- `http://127.0.0.1:<HOST_PORT>/<ASSETS_DIR>/...` -> markdown assets from Hugo output (`/var/www/blog/<ASSETS_DIR>/...`)
 
 Notes:
 
@@ -43,7 +43,7 @@ This default mode uses bundled/default resources:
 
 Lookup order:
 
-1. Local archive in project root
+1. Local archive in `./.runtime/`
 2. Otherwise download from GitHub release `latest`
 3. Extract to `./.runtime/`
 
@@ -78,11 +78,15 @@ Custom editor + custom watcher:
 ./start.sh --use-custom-editor <editor_static_dir> --use-custom-watcher <watcher_cmd> <markdown_dir>
 ```
 
-`--use-default-resources` is accepted for compatibility, but optional.
+Adapter toggle:
+
+- Enable adaptation by passing `--content-adapter <script_path>` to `start.sh`.
+- Disable adaptation by omitting `--content-adapter`.
 
 ## Options
 
-- `--pic-dir <name>`: asset folder name under markdown root (default: `_assets`)
+- `-a, --assets-dir <dir>`: asset folder name under markdown root (default: `_assets`)
+- `--content-adapter <script>`: adapter script path to transform markdown before Hugo build (default: disabled)
 - `-p, --host-port <port>`: blog host port (default: `8080`)
 - `--editor-port <port>`: editor host port (default: `8081`)
 - `--no-watch`: do not start watcher
@@ -99,15 +103,44 @@ Watcher notes:
 
 ```bash
 ./start.sh /data/blog/markdown
-./start.sh --pic-dir images /data/blog/markdown
+./start.sh --content-adapter content-adapter/prepare_content.sh /data/blog/markdown
+./start.sh --assets-dir images /data/blog/markdown
 ./start.sh --use-custom-watcher "markwatch --some-flag value" /data/blog/markdown
 ./start.sh --use-custom-editor /data/editor/dist -p 8080 --editor-port 8081 /data/blog/markdown
-./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" --pic-dir images -p 8080 --editor-port 8081 /data/blog/markdown
+./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" --assets-dir images -p 8080 --editor-port 8081 /data/blog/markdown
 ```
+
+## `MARKDOWN_DIR` layout
+
+Current adapter rules assume the markdown workspace (`MARKDOWN_DIR`) is organized like this:
+
+```text
+<markdown_dir>/
+├── _assets/                      # default ASSETS_DIR; served as /_assets/...
+│   └── ...
+├── 2026-03-01-hello.md           # root-level markdown (mapped to default section)
+├── 2026-03-01-hello.md.meta.yml  # optional sidecar override for the markdown file
+├── notes/
+│   ├── index.md
+│   ├── deep-dive.md
+│   └── deep-dive.md.meta.yml
+└── projects/
+    └── alpha.md
+```
+
+Notes:
+
+- `--assets-dir <dir>` controls the asset folder name (default `_assets`).
+- Markdown files under root are mapped to `default_section` (default: `posts`).
+- Markdown files in subdirectories keep their relative paths (for example `notes/a.md` stays under `notes/`).
+- Sidecar files supported by default: `*.meta.yaml` and `*.meta.yml`.
+- Sidecar fields override inferred/front matter fields.
+- `*.md` links are rewritten to Hugo internal links (`relref`) when target files exist.
+- Directories listed in `content-adapter/content-adapter.toml` `ignore_dirs` (default `.git`, `.runtime`) are skipped.
 
 ## What `start.sh` does
 
-1. Validates paths and ports (`host_port` and `editor_port` must be different)
+1. Validates paths and ports (`HOST_PORT` and `EDITOR_PORT` must be different)
 2. Prepares default resources for parts not customized
 3. Writes `.env.runtime`
 4. Runs one release build (`build.sh`)
@@ -123,11 +156,21 @@ cd markcompose
 
 `build.sh` is a release pipeline, not just raw `hugo`:
 
-1. Build to a temporary staging directory
-2. Run gate checks (for example generated site has `index.html`)
-3. Replace the published `hugo_public` output with clean staged files (removes stale files)
+1. If a content adapter is configured (for example via `start.sh --content-adapter ...`), adapt plain Markdown into Hugo-ready content under `.runtime/content-adapted` (does not modify the originals)
+2. Build to a temporary staging directory
+3. Run gate checks (for example generated site has `index.html`)
+4. Replace the published `hugo_public` output with clean staged files (removes stale files)
 
 Watcher-triggered builds use the same `build.sh` pipeline.
+
+Content adapter notes:
+
+- Adapter entrypoint: `content-adapter/prepare_content.sh`
+- Config: `content-adapter/content-adapter.toml`
+- Sidecar meta override: `foo.md.meta.yaml` (or `.meta.yml`) next to the markdown file, to override inferred front matter fields
+- Sidecar example: `examples/meta-yml/`
+- Enable adapter: run `./start.sh --content-adapter content-adapter/prepare_content.sh <markdown_dir>`
+- Disable adapter: rerun `start.sh` without `--content-adapter`
 
 Bootstrap behavior:
 
@@ -152,7 +195,8 @@ Remove named volumes too:
 ## Runtime files
 
 - `.env.runtime`: runtime env used by compose/build commands
-- `.runtime/`: extracted default resources
+- `docker-compose.yml` maps `ASSETS_DIR` to `HUGO_ASSETS_DIR` for Hugo render hooks
+- `.runtime/`: downloaded default archives and extracted default resources
 - `.markwatch.pid`: watcher PID (if running)
 - `.markwatch.log`: watcher log
 - `hugo-reuse/layouts/_markup/`: reusable, theme-agnostic render hooks for path normalization
@@ -164,6 +208,6 @@ Remove named volumes too:
 - `start.sh` rejects paths containing whitespace.
 - Default watcher archive auto-selects Linux `amd64`/`arm64`; on other platforms, use `--use-custom-watcher`.
 - A freshly bootstrapped `hugo-site` is a bare Hugo skeleton; add theme/layout templates before expecting full page output.
-- Markdown image/link paths whose relative path starts with `<pic_dir>/` or `./<pic_dir>/` are rewritten to `/<pic_dir>/...` during Hugo render.
-- Absolute URLs, protocol-relative URLs, root-absolute paths (`/foo`), and paths outside `<pic_dir>/` are not rewritten.
+- Markdown image/link paths whose relative path starts with `<ASSETS_DIR>/` or `./<ASSETS_DIR>/` are rewritten to `/<ASSETS_DIR>/...` during Hugo render.
+- Absolute URLs, protocol-relative URLs, root-absolute paths (`/foo`), and paths outside `<ASSETS_DIR>/` are not rewritten.
 - Build/publish is full-site Hugo build each run (not cross-run incremental).
