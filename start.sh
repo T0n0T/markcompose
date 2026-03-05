@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env.runtime"
+BASELINE_ENV_FILE="${SCRIPT_DIR}/.env"
 RUNTIME_DIR="${SCRIPT_DIR}/.runtime"
 MARKWATCH_PID_FILE="${SCRIPT_DIR}/.markwatch.pid"
 MARKWATCH_LOG_FILE="${SCRIPT_DIR}/.markwatch.log"
@@ -155,16 +156,51 @@ write_env_file() {
   local host_port="$4"
   local editor_port="$5"
   local adapter_script="$6"
+  local tmp_env_file=""
 
-  cat >"${ENV_FILE}" <<ENV
-MARKDOWN_DIR=${markdown_dir}
-EDITOR_STATIC_DIR=${editor_dir}
-ASSETS_DIR=${asset_dir}
-ADAPTER_SCRIPT=${adapter_script}
-HOST_PORT=${host_port}
-EDITOR_PORT=${editor_port}
-COMPOSE_PROJECT_NAME=markcompose
-ENV
+  upsert_env_key() {
+    local env_file="$1"
+    local key="$2"
+    local value="$3"
+    local env_file_tmp=""
+
+    env_file_tmp="$(mktemp "${env_file}.upsert.XXXXXX")"
+    awk -v key="${key}" -v value="${value}" '
+      BEGIN { replaced = 0 }
+      {
+        if ($0 ~ ("^[[:space:]]*(export[[:space:]]+)?" key "=")) {
+          print key "=" value
+          replaced = 1
+        } else {
+          print
+        }
+      }
+      END {
+        if (!replaced) {
+          print key "=" value
+        }
+      }
+    ' "${env_file}" > "${env_file_tmp}"
+    mv "${env_file_tmp}" "${env_file}"
+  }
+
+  tmp_env_file="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
+
+  if [[ -f "${BASELINE_ENV_FILE}" ]]; then
+    cp "${BASELINE_ENV_FILE}" "${tmp_env_file}"
+  else
+    : > "${tmp_env_file}"
+  fi
+
+  upsert_env_key "${tmp_env_file}" "MARKDOWN_DIR" "${markdown_dir}"
+  upsert_env_key "${tmp_env_file}" "EDITOR_STATIC_DIR" "${editor_dir}"
+  upsert_env_key "${tmp_env_file}" "ASSETS_DIR" "${asset_dir}"
+  upsert_env_key "${tmp_env_file}" "ADAPTER_SCRIPT" "${adapter_script}"
+  upsert_env_key "${tmp_env_file}" "HOST_PORT" "${host_port}"
+  upsert_env_key "${tmp_env_file}" "EDITOR_PORT" "${editor_port}"
+  upsert_env_key "${tmp_env_file}" "COMPOSE_PROJECT_NAME" "markcompose"
+
+  mv "${tmp_env_file}" "${ENV_FILE}"
 }
 
 download_archive() {
@@ -525,6 +561,12 @@ check_no_spaces "${MARKDOWN_DIR}"
 check_no_spaces "${EDITOR_STATIC_DIR}"
 if [[ -n "${ADAPTER_SCRIPT_PATH}" ]]; then
   check_no_spaces "${ADAPTER_SCRIPT_PATH}"
+fi
+
+if [[ -f "${BASELINE_ENV_FILE}" ]]; then
+  print_item "Using baseline env file: ${BASELINE_ENV_FILE}"
+else
+  print_item "No baseline .env found; writing runtime env from defaults."
 fi
 
 write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${ASSETS_DIR}" "${HOST_PORT}" "${EDITOR_PORT}" "${ADAPTER_SCRIPT_PATH}"

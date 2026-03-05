@@ -194,6 +194,7 @@ Remove named volumes too:
 
 ## Runtime files
 
+- `.env` (optional): baseline env. If present, `start.sh` uses it as the base and then overwrites runtime-managed keys into `.env.runtime`
 - `.env.runtime`: runtime env used by compose/build commands
 - `docker-compose.yml` maps `ASSETS_DIR` to `HUGO_ASSETS_DIR` for Hugo render hooks
 - `.runtime/`: downloaded default archives and extracted default resources
