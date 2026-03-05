@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${1:-${SCRIPT_DIR}/.env.runtime}"
 STAGING_DIR=""
+HUGO_SITE_DIR="${SCRIPT_DIR}/hugo-site"
+REUSABLE_MARKUP_DIR="${SCRIPT_DIR}/hugo-reuse/layouts/_markup"
+HUGO_IMAGE="docker.io/hugomods/hugo:dart-sass-non-root"
 
 die() {
   echo "ERROR: $*" >&2
@@ -20,33 +23,38 @@ cleanup() {
   fi
 }
 
-collect_attachment_refs() {
-  local output_dir="$1"
+ensure_reusable_markup_templates() {
+  [[ -f "${REUSABLE_MARKUP_DIR}/render-image.html" ]] || die "Reusable template not found: ${REUSABLE_MARKUP_DIR}/render-image.html"
+  [[ -f "${REUSABLE_MARKUP_DIR}/render-link.html" ]] || die "Reusable template not found: ${REUSABLE_MARKUP_DIR}/render-link.html"
+}
 
-  rg --no-filename -o '/attachments/[^"'"'"' <>()]+' "${output_dir}" -g '*.html' 2>/dev/null \
-    | sed -E 's/[?#].*$//' \
-    | sort -u
+install_reusable_markup_templates() {
+  mkdir -p "${HUGO_SITE_DIR}/layouts/_markup"
+  cp "${REUSABLE_MARKUP_DIR}/render-image.html" "${HUGO_SITE_DIR}/layouts/_markup/render-image.html"
+  cp "${REUSABLE_MARKUP_DIR}/render-link.html" "${HUGO_SITE_DIR}/layouts/_markup/render-link.html"
+}
+
+init_hugo_site_if_missing() {
+  if [[ -d "${HUGO_SITE_DIR}" ]]; then
+    return 0
+  fi
+
+  ensure_reusable_markup_templates
+  echo "hugo-site not found. Initializing with Hugo image..."
+  docker run --rm \
+    -u "$(id -u):$(id -g)" \
+    -v "${SCRIPT_DIR}:/work" \
+    -w /work \
+    "${HUGO_IMAGE}" \
+    sh -lc 'hugo new site hugo-site'
+  install_reusable_markup_templates
+  echo "Initialized hugo-site and installed reusable render hooks."
 }
 
 gate_check_output() {
   local output_dir="$1"
-  local attachments_dir="$2"
-  local missing=0
-  local ref=""
 
   [[ -f "${output_dir}/index.html" ]] || die "Gate failed: generated site does not contain index.html"
-
-  while IFS= read -r ref; do
-    [[ -n "${ref}" ]] || continue
-    local rel="${ref#/attachments/}"
-    local file_path="${attachments_dir%/}/${rel}"
-    if [[ ! -f "${file_path}" ]]; then
-      echo "GATE: missing attachment -> ${ref} (expected ${file_path})" >&2
-      missing=$((missing + 1))
-    fi
-  done < <(collect_attachment_refs "${output_dir}")
-
-  (( missing == 0 )) || die "Gate failed: ${missing} attachment reference(s) are missing on disk."
 }
 
 run_hugo_build_to_staging() {
@@ -85,16 +93,13 @@ cp -a /staging/. /public/'
 
 [[ -f "${ENV_FILE}" ]] || die "Env file not found: ${ENV_FILE}. Run start.sh first."
 require_cmd docker
-require_cmd rg
 docker compose version >/dev/null 2>&1 || die "docker compose is not available"
+init_hugo_site_if_missing
 
 set -a
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 set +a
-
-[[ -n "${ATTACHMENTS_DIR:-}" ]] || die "ATTACHMENTS_DIR is required in ${ENV_FILE}"
-[[ -d "${ATTACHMENTS_DIR}" ]] || die "Attachments directory not found: ${ATTACHMENTS_DIR}"
 
 trap cleanup EXIT
 STAGING_DIR="$(mktemp -d /tmp/markcompose-build.XXXXXX)"
@@ -104,7 +109,7 @@ echo "  staging_dir=${STAGING_DIR}"
 run_hugo_build_to_staging "$(id -u):$(id -g)"
 
 echo "Running gate checks..."
-gate_check_output "${STAGING_DIR}" "${ATTACHMENTS_DIR}"
+gate_check_output "${STAGING_DIR}"
 echo "Gate checks passed."
 
 echo "Publishing to hugo_public volume (replace + clean)..."

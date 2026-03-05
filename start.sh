@@ -24,8 +24,7 @@ Options:
                                (default behavior; kept for compatibility).
   --use-custom-editor <dir>    Use custom editor static directory instead of bundled markflow dist.
   --use-custom-watcher <cmd>   Use custom watcher command string instead of bundled markwatch.
-  --pic-dir <name>             Image folder name under markdown dir (default: _assets).
-  -a, --attachments-dir <dir>  Attachments directory (default: <markdown_dir>/<pic_dir>).
+  --pic-dir <name>             Asset folder name under markdown dir (default: _assets).
   -p, --host-port <port>       Host port (default: 8080).
   --editor-port <port>         Editor host port (default: 8081).
   --no-watch                   Do not start markwatch watcher.
@@ -39,7 +38,7 @@ Examples:
   ./start.sh --use-custom-watcher "markwatch --some-flag value" /data/blog/md
   ./start.sh --use-custom-editor /data/editor/dist -p 8080 --editor-port 8081 /data/blog/md
   ./start.sh --pic-dir images /data/blog/md
-  ./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" -a /data/blog/attachments -p 8080 --editor-port 8081 /data/blog/md
+  ./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" -p 8080 --editor-port 8081 /data/blog/md
 USAGE
 }
 
@@ -134,15 +133,13 @@ resolve_default_markwatch_package() {
 write_env_file() {
   local markdown_dir="$1"
   local editor_dir="$2"
-  local attachments_dir="$3"
-  local pic_dir="$4"
-  local host_port="$5"
-  local editor_port="$6"
+  local pic_dir="$3"
+  local host_port="$4"
+  local editor_port="$5"
 
   cat >"${ENV_FILE}" <<ENV
 MARKDOWN_DIR=${markdown_dir}
 EDITOR_STATIC_DIR=${editor_dir}
-ATTACHMENTS_DIR=${attachments_dir}
 PIC_DIR=${pic_dir}
 HOST_PORT=${host_port}
 EDITOR_PORT=${editor_port}
@@ -311,7 +308,6 @@ MARKWATCH_ARCHIVE=""
 POSITIONAL=()
 EDITOR_STATIC_DIR=""
 MARKWATCH_CMD=""
-ATTACHMENTS_DIR=""
 PIC_DIR=""
 HOST_PORT="8080"
 EDITOR_PORT="8081"
@@ -334,9 +330,7 @@ while (( $# > 0 )); do
       shift 2
       ;;
     -a|--attachments-dir)
-      (( $# >= 2 )) || die "$1 requires a directory path"
-      ATTACHMENTS_DIR="$2"
-      shift 2
+      die "$1 is no longer supported. Assets are served from /<pic_dir>/ in Hugo output."
       ;;
     --pic-dir)
       (( $# >= 2 )) || die "$1 requires a folder name"
@@ -414,9 +408,6 @@ MARKDOWN_DIR="$1"
 if [[ -z "${PIC_DIR}" ]]; then
   PIC_DIR="_assets"
 fi
-if [[ -z "${ATTACHMENTS_DIR}" ]]; then
-  ATTACHMENTS_DIR="${MARKDOWN_DIR}/${PIC_DIR}"
-fi
 
 check_pic_dir "${PIC_DIR}"
 check_num "${DEBOUNCE_MS}" "debounce-ms"
@@ -478,7 +469,7 @@ if [[ "${START_WATCHER}" == "true" ]] && [[ "${USE_CUSTOM_WATCHER}" != "true" ]]
 fi
 
 ensure_dir "${MARKDOWN_DIR}"
-ensure_dir_or_create "${ATTACHMENTS_DIR}"
+ensure_dir_or_create "${MARKDOWN_DIR}/${PIC_DIR}"
 if [[ "${USE_CUSTOM_EDITOR}" == "true" ]]; then
   ensure_dir "${EDITOR_STATIC_DIR}"
 else
@@ -490,18 +481,15 @@ fi
 
 MARKDOWN_DIR="$(to_abs "${MARKDOWN_DIR}")"
 EDITOR_STATIC_DIR="$(to_abs "${EDITOR_STATIC_DIR}")"
-ATTACHMENTS_DIR="$(to_abs "${ATTACHMENTS_DIR}")"
 
 check_no_spaces "${MARKDOWN_DIR}"
 check_no_spaces "${EDITOR_STATIC_DIR}"
-check_no_spaces "${ATTACHMENTS_DIR}"
 
-write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${ATTACHMENTS_DIR}" "${PIC_DIR}" "${HOST_PORT}" "${EDITOR_PORT}"
+write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${PIC_DIR}" "${HOST_PORT}" "${EDITOR_PORT}"
 
 echo "Configuration written to ${ENV_FILE}"
 echo "  MARKDOWN_DIR=${MARKDOWN_DIR}"
 echo "  EDITOR_STATIC_DIR=${EDITOR_STATIC_DIR}"
-echo "  ATTACHMENTS_DIR=${ATTACHMENTS_DIR}"
 echo "  PIC_DIR=${PIC_DIR}"
 echo "  HOST_PORT=${HOST_PORT}"
 echo "  EDITOR_PORT=${EDITOR_PORT}"
@@ -527,7 +515,7 @@ fi
 echo "Service started:"
 echo "  Blog:        http://127.0.0.1:${HOST_PORT}/"
 echo "  Editor:      http://127.0.0.1:${EDITOR_PORT}/"
-echo "  Attachments: http://127.0.0.1:${HOST_PORT}/attachments/"
+echo "  Assets:      http://127.0.0.1:${HOST_PORT}/${PIC_DIR}/"
 if [[ "${MARKWATCH_STATUS}" == "started" ]]; then
   echo "  Markwatch:   started (PID $(cat "${MARKWATCH_PID_FILE}")), log -> ${MARKWATCH_LOG_FILE}"
 elif [[ "${START_WATCHER}" == "true" ]]; then

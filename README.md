@@ -7,19 +7,18 @@ Minimal split-port stack for a Hugo blog and a static editor.
 - Builds blog HTML with `docker.io/hugomods/hugo:dart-sass`
 - Serves blog static files on `host_port` (default `8080`)
 - Serves editor static files on `editor_port` (default `8081`)
-- Serves attachments only on blog port under `/attachments/`
+- Serves markdown-managed assets from Hugo output under `/<pic_dir>/` (default `/_assets/`)
 - Optionally runs a markdown watcher (`markwatch`) for automatic release builds
 
 ## Port mapping
 
 - `http://127.0.0.1:<host_port>/` -> blog static output (`/var/www/blog`)
 - `http://127.0.0.1:<editor_port>/` -> editor static files (`/var/www/editor`)
-- `http://127.0.0.1:<host_port>/attachments/...` -> attachments (`/var/www/attachments`)
+- `http://127.0.0.1:<host_port>/<pic_dir>/...` -> markdown assets from Hugo output (`/var/www/blog/<pic_dir>/...`)
 
 Notes:
 
-- Editor port does not expose `/attachments` (returns `404`).
-- Opening `/attachments/` on blog port may return `403` when there is no index file and directory listing is disabled.
+- Editor port serves editor static files only; blog pages/assets are on blog port.
 - `/editor/` path is not used in split-port mode.
 
 ## Requirements
@@ -83,8 +82,7 @@ Custom editor + custom watcher:
 
 ## Options
 
-- `--pic-dir <name>`: image folder name under markdown root (default: `_assets`)
-- `-a, --attachments-dir <dir>`: attachments directory (default: `<markdown_dir>/<pic_dir>`)
+- `--pic-dir <name>`: asset folder name under markdown root (default: `_assets`)
 - `-p, --host-port <port>`: blog host port (default: `8080`)
 - `--editor-port <port>`: editor host port (default: `8081`)
 - `--no-watch`: do not start watcher
@@ -104,7 +102,7 @@ Watcher notes:
 ./start.sh --pic-dir images /data/blog/markdown
 ./start.sh --use-custom-watcher "markwatch --some-flag value" /data/blog/markdown
 ./start.sh --use-custom-editor /data/editor/dist -p 8080 --editor-port 8081 /data/blog/markdown
-./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" -a /data/blog/attachments -p 8080 --editor-port 8081 /data/blog/markdown
+./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" --pic-dir images -p 8080 --editor-port 8081 /data/blog/markdown
 ```
 
 ## What `start.sh` does
@@ -126,10 +124,15 @@ cd markcompose
 `build.sh` is a release pipeline, not just raw `hugo`:
 
 1. Build to a temporary staging directory
-2. Run gate checks (for example missing `/attachments/...` files referenced by generated HTML)
+2. Run gate checks (for example generated site has `index.html`)
 3. Replace the published `hugo_public` output with clean staged files (removes stale files)
 
 Watcher-triggered builds use the same `build.sh` pipeline.
+
+Bootstrap behavior:
+
+- If `./hugo-site` does not exist, `build.sh` will run `hugo new site hugo-site` in the Hugo Docker image.
+- After bootstrap, reusable render hooks are copied from `./hugo-reuse/layouts/_markup/` into `./hugo-site/layouts/_markup/`.
 
 ## Stop services
 
@@ -152,6 +155,7 @@ Remove named volumes too:
 - `.runtime/`: extracted default resources
 - `.markwatch.pid`: watcher PID (if running)
 - `.markwatch.log`: watcher log
+- `hugo-reuse/layouts/_markup/`: reusable, theme-agnostic render hooks for path normalization
 
 ## Known constraints
 
@@ -159,6 +163,7 @@ Remove named volumes too:
 - This stack does not run `hugo server`.
 - `start.sh` rejects paths containing whitespace.
 - Default watcher archive auto-selects Linux `amd64`/`arm64`; on other platforms, use `--use-custom-watcher`.
-- Markdown images whose relative path starts with `<pic_dir>/` are rewritten to `/attachments/...` during Hugo render.
-- Absolute URLs, protocol-relative URLs, root-absolute paths (`/foo`), and non-image Markdown links are not rewritten.
+- A freshly bootstrapped `hugo-site` is a bare Hugo skeleton; add theme/layout templates before expecting full page output.
+- Markdown image/link paths whose relative path starts with `<pic_dir>/` or `./<pic_dir>/` are rewritten to `/<pic_dir>/...` during Hugo render.
+- Absolute URLs, protocol-relative URLs, root-absolute paths (`/foo`), and paths outside `<pic_dir>/` are not rewritten.
 - Build/publish is full-site Hugo build each run (not cross-run incremental).
