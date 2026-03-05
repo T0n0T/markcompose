@@ -48,6 +48,23 @@ die() {
   exit 1
 }
 
+print_section() {
+  local title="$1"
+  printf '\n============================================================\n'
+  printf '%s\n' "${title}"
+  printf '============================================================\n'
+}
+
+print_item() {
+  printf '  - %s\n' "$*"
+}
+
+print_kv() {
+  local key="$1"
+  local value="$2"
+  printf '  %-18s %s\n' "${key}:" "${value}"
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
 }
@@ -413,6 +430,9 @@ if [[ -z "${ASSETS_DIR}" ]]; then
   ASSETS_DIR="_assets"
 fi
 
+print_section "Phase 1/6: Validate Inputs"
+print_item "Checking options, ports, and required commands."
+
 check_asset_dir "${ASSETS_DIR}"
 check_num "${DEBOUNCE_MS}" "debounce-ms"
 check_num "${RECONCILE_SEC}" "reconcile-sec"
@@ -425,7 +445,11 @@ if [[ "${CUSTOM_EDITOR_ENABLED}" != "true" ]] || { [[ "${CUSTOM_WATCHER_ENABLED}
   require_cmd tar
 fi
 
+print_item "Input validation passed."
+
+print_section "Phase 2/6: Prepare Editor Resources"
 if [[ "${CUSTOM_EDITOR_ENABLED}" != "true" ]]; then
+  print_item "Using bundled markflow editor package."
   MARKFLOW_EXTRACT_DIR_PATH="${RUNTIME_DIR}/markflow"
   MARKFLOW_DIST_DIR_PATH=""
 
@@ -434,18 +458,23 @@ if [[ "${CUSTOM_EDITOR_ENABLED}" != "true" ]]; then
   fi
 
   if [[ -z "${MARKFLOW_DIST_DIR_PATH}" ]]; then
+    print_item "No usable extracted markflow dist found; preparing archive."
     MARKFLOW_ARCHIVE_PATH="$(resolve_or_download_archive "markflow" "${MARKFLOW_ARCHIVE_PATH}" "${DEFAULT_MARKFLOW_URL}")"
     MARKFLOW_ARCHIVE_PATH="$(to_abs "${MARKFLOW_ARCHIVE_PATH}")"
     extract_tarball "${MARKFLOW_ARCHIVE_PATH}" "${MARKFLOW_EXTRACT_DIR_PATH}"
     MARKFLOW_DIST_DIR_PATH="$(resolve_markflow_dist_dir "${MARKFLOW_EXTRACT_DIR_PATH}")"
   else
-    echo "Using existing extracted markflow dist: ${MARKFLOW_DIST_DIR_PATH}" >&2
+    print_item "Using existing extracted markflow dist."
   fi
 
   EDITOR_STATIC_DIR="${MARKFLOW_DIST_DIR_PATH}"
+else
+  print_item "Using custom editor directory."
 fi
 
+print_section "Phase 3/6: Prepare Watcher Resources"
 if [[ "${WATCHER_ENABLED}" == "true" ]] && [[ "${CUSTOM_WATCHER_ENABLED}" != "true" ]]; then
+  print_item "Watcher enabled; using bundled markwatch package."
   resolve_default_markwatch_package
   WATCHER_ARCHIVE_PATH="${DEFAULT_MARKWATCH_ARCHIVE_PATH}"
   WATCHER_EXTRACT_DIR="${RUNTIME_DIR}/markwatch"
@@ -459,19 +488,25 @@ if [[ "${WATCHER_ENABLED}" == "true" ]] && [[ "${CUSTOM_WATCHER_ENABLED}" != "tr
   fi
 
   if [[ -z "${WATCHER_BINARY_PATH}" ]]; then
+    print_item "No usable extracted markwatch binary found; preparing archive."
     WATCHER_ARCHIVE_PATH="$(resolve_or_download_archive "markwatch" "${WATCHER_ARCHIVE_PATH}" "${DEFAULT_MARKWATCH_URL}")"
     WATCHER_ARCHIVE_PATH="$(to_abs "${WATCHER_ARCHIVE_PATH}")"
     extract_tarball "${WATCHER_ARCHIVE_PATH}" "${WATCHER_EXTRACT_DIR}"
     WATCHER_BINARY_PATH="$(resolve_markwatch_binary_from_dir "${WATCHER_EXTRACT_DIR}" || true)"
     [[ -n "${WATCHER_BINARY_PATH}" ]] || die "Cannot find markwatch binary after extracting default package"
   else
-    echo "Using existing extracted markwatch binary: ${WATCHER_BINARY_PATH}" >&2
+    print_item "Using existing extracted markwatch binary."
   fi
 
   WATCHER_COMMAND="$(printf '%q' "${WATCHER_BINARY_PATH}")"
   DEFAULT_WATCHER_ENABLED="true"
+elif [[ "${WATCHER_ENABLED}" == "true" ]]; then
+  print_item "Watcher enabled; using custom watcher command."
+else
+  print_item "Watcher disabled (--no-watch)."
 fi
 
+print_section "Phase 4/6: Prepare Runtime Configuration"
 ensure_dir "${MARKDOWN_DIR}"
 ensure_dir_or_create "${MARKDOWN_DIR}/${ASSETS_DIR}"
 if [[ "${CUSTOM_EDITOR_ENABLED}" == "true" ]]; then
@@ -494,20 +529,25 @@ fi
 
 write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${ASSETS_DIR}" "${HOST_PORT}" "${EDITOR_PORT}" "${ADAPTER_SCRIPT_PATH}"
 
-echo "Configuration written to ${ENV_FILE}"
-echo "  MARKDOWN_DIR=${MARKDOWN_DIR}"
-echo "  EDITOR_STATIC_DIR=${EDITOR_STATIC_DIR}"
-echo "  ASSETS_DIR=${ASSETS_DIR}"
+print_item "Runtime env file written."
+print_kv "ENV_FILE" "${ENV_FILE}"
+print_kv "MARKDOWN_DIR" "${MARKDOWN_DIR}"
+print_kv "EDITOR_STATIC_DIR" "${EDITOR_STATIC_DIR}"
+print_kv "ASSETS_DIR" "${ASSETS_DIR}"
 if [[ -n "${ADAPTER_SCRIPT_PATH}" ]]; then
-  echo "  ADAPTER_SCRIPT=${ADAPTER_SCRIPT_PATH}"
+  print_kv "ADAPTER_SCRIPT" "${ADAPTER_SCRIPT_PATH}"
 else
-  echo "  ADAPTER_SCRIPT=<disabled>"
+  print_kv "ADAPTER_SCRIPT" "<disabled>"
 fi
-echo "  HOST_PORT=${HOST_PORT}"
-echo "  EDITOR_PORT=${EDITOR_PORT}"
+print_kv "HOST_PORT" "${HOST_PORT}"
+print_kv "EDITOR_PORT" "${EDITOR_PORT}"
 
+print_section "Phase 5/6: Build Site"
+print_item "Running release build pipeline (build.sh)."
 "${BUILD_SCRIPT}" "${ENV_FILE}"
 
+print_section "Phase 6/6: Start Services"
+print_item "Starting nginx container."
 (
   cd "${SCRIPT_DIR}"
   docker compose --env-file "${ENV_FILE}" up -d nginx
@@ -515,8 +555,9 @@ echo "  EDITOR_PORT=${EDITOR_PORT}"
 
 if [[ "${WATCHER_ENABLED}" == "true" ]]; then
   if [[ "${DEFAULT_WATCHER_ENABLED}" != "true" ]]; then
-    echo "Custom watcher mode: --debounce-ms/--reconcile-sec/--watch-log-level are ignored."
+    print_item "Custom watcher mode: --debounce-ms/--reconcile-sec/--watch-log-level are ignored."
   fi
+  print_item "Starting watcher process."
   if start_markwatch "${WATCHER_COMMAND}" "${MARKDOWN_DIR}" "${DEFAULT_WATCHER_ENABLED}" "${DEBOUNCE_MS}" "${RECONCILE_SEC}" "${WATCH_LOG_LEVEL}"; then
     MARKWATCH_STATUS="started"
   else
@@ -524,12 +565,16 @@ if [[ "${WATCHER_ENABLED}" == "true" ]]; then
   fi
 fi
 
-echo "Service started:"
-echo "  Blog:        http://127.0.0.1:${HOST_PORT}/"
-echo "  Editor:      http://127.0.0.1:${EDITOR_PORT}/"
-echo "  Assets:      http://127.0.0.1:${HOST_PORT}/${ASSETS_DIR}/"
+print_section "Startup Summary"
+print_kv "Blog" "http://127.0.0.1:${HOST_PORT}/"
+print_kv "Editor" "http://127.0.0.1:${EDITOR_PORT}/"
+print_kv "Assets" "http://127.0.0.1:${HOST_PORT}/${ASSETS_DIR}/"
 if [[ "${MARKWATCH_STATUS}" == "started" ]]; then
-  echo "  Markwatch:   started (PID $(cat "${MARKWATCH_PID_FILE}")), log -> ${MARKWATCH_LOG_FILE}"
+  print_kv "Markwatch" "started (PID $(cat "${MARKWATCH_PID_FILE}"))"
+  print_kv "Watch Log" "${MARKWATCH_LOG_FILE}"
 elif [[ "${WATCHER_ENABLED}" == "true" ]]; then
-  echo "  Markwatch:   failed to stay running, check log -> ${MARKWATCH_LOG_FILE}"
+  print_kv "Markwatch" "failed to stay running"
+  print_kv "Watch Log" "${MARKWATCH_LOG_FILE}"
+else
+  print_kv "Markwatch" "disabled"
 fi

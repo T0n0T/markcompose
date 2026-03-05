@@ -124,7 +124,12 @@ EOF
 publish_staging_to_public() {
   local publish_cmd='set -eu
 find /public -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-  cp -a /staging/. /public/'
+cp -a /staging/. /public/
+
+# Ensure nginx can traverse/read published site content.
+chmod 755 /public
+find /public -type d -exec chmod 755 {} +
+find /public -type f -exec chmod 644 {} +'
 
   (
     cd "${REPO_ROOT}"
