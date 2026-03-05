@@ -40,7 +40,7 @@ cd markcompose
 This default mode uses bundled/default resources:
 
 - editor: `markflow-dist.tar.gz`
-- watcher: `markwatch-x86_64-unknown-linux-gnu.tar.gz`
+- watcher: auto-detected by host arch (`markwatch-x86_64-unknown-linux-gnu.tar.gz` or `markwatch-aarch64-unknown-linux-gnu.tar.gz`)
 
 Lookup order:
 
@@ -51,7 +51,7 @@ Lookup order:
 Default URLs:
 
 - `https://github.com/T0n0T/markflow/releases/latest/download/markflow-dist.tar.gz`
-- `https://github.com/T0n0T/markwatch/releases/latest/download/markwatch-x86_64-unknown-linux-gnu.tar.gz`
+- `https://github.com/T0n0T/markwatch/releases/latest/download/markwatch-<target>.tar.gz`
 
 ## Start modes
 
@@ -155,9 +155,10 @@ Remove named volumes too:
 
 ## Known constraints
 
+- `markcompose` currently supports Linux hosts only.
 - This stack does not run `hugo server`.
 - `start.sh` rejects paths containing whitespace.
-- Default watcher archive is Linux `x86_64` release; on other platforms, use `--use-custom-watcher`.
+- Default watcher archive auto-selects Linux `amd64`/`arm64`; on other platforms, use `--use-custom-watcher`.
 - Markdown images whose relative path starts with `<pic_dir>/` are rewritten to `/attachments/...` during Hugo render.
 - Absolute URLs, protocol-relative URLs, root-absolute paths (`/foo`), and non-image Markdown links are not rewritten.
 - Build/publish is full-site Hugo build each run (not cross-run incremental).

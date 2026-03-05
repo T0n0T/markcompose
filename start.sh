@@ -8,9 +8,11 @@ MARKWATCH_PID_FILE="${SCRIPT_DIR}/.markwatch.pid"
 MARKWATCH_LOG_FILE="${SCRIPT_DIR}/.markwatch.log"
 
 DEFAULT_MARKFLOW_URL="https://github.com/T0n0T/markflow/releases/latest/download/markflow-dist.tar.gz"
-DEFAULT_MARKWATCH_URL="https://github.com/T0n0T/markwatch/releases/latest/download/markwatch-x86_64-unknown-linux-gnu.tar.gz"
+DEFAULT_MARKWATCH_BASE_URL="https://github.com/T0n0T/markwatch/releases/latest/download"
+DEFAULT_MARKWATCH_URL=""
+DEFAULT_MARKWATCH_TARGET=""
 DEFAULT_MARKFLOW_ARCHIVE="${SCRIPT_DIR}/markflow-dist.tar.gz"
-DEFAULT_MARKWATCH_ARCHIVE="${SCRIPT_DIR}/markwatch-x86_64-unknown-linux-gnu.tar.gz"
+DEFAULT_MARKWATCH_ARCHIVE=""
 
 usage() {
   cat <<'USAGE'
@@ -98,6 +100,35 @@ check_pic_dir() {
 
 check_docker_compose() {
   docker compose version >/dev/null 2>&1 || die "docker compose is not available"
+}
+
+resolve_default_markwatch_package() {
+  local host_os=""
+  local host_arch=""
+  local target=""
+
+  host_os="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  host_arch="$(uname -m 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "${host_os}" != "linux" ]]; then
+    die "Default markwatch package only supports Linux hosts. Detected OS: ${host_os}. Use --use-custom-watcher."
+  fi
+
+  case "${host_arch}" in
+    x86_64|amd64)
+      target="x86_64-unknown-linux-gnu"
+      ;;
+    aarch64|arm64)
+      target="aarch64-unknown-linux-gnu"
+      ;;
+    *)
+      die "Unsupported CPU arch for default markwatch package: ${host_arch}. Supported: amd64, arm64. Use --use-custom-watcher."
+      ;;
+  esac
+
+  DEFAULT_MARKWATCH_TARGET="${target}"
+  DEFAULT_MARKWATCH_URL="${DEFAULT_MARKWATCH_BASE_URL}/markwatch-${target}.tar.gz"
+  DEFAULT_MARKWATCH_ARCHIVE="${SCRIPT_DIR}/markwatch-${target}.tar.gz"
 }
 
 write_env_file() {
@@ -276,7 +307,7 @@ DEBOUNCE_MS="800"
 RECONCILE_SEC="600"
 WATCH_LOG_LEVEL="info"
 MARKFLOW_ARCHIVE="${DEFAULT_MARKFLOW_ARCHIVE}"
-MARKWATCH_ARCHIVE="${DEFAULT_MARKWATCH_ARCHIVE}"
+MARKWATCH_ARCHIVE=""
 POSITIONAL=()
 EDITOR_STATIC_DIR=""
 MARKWATCH_CMD=""
@@ -420,11 +451,16 @@ if [[ "${USE_CUSTOM_EDITOR}" != "true" ]]; then
 fi
 
 if [[ "${START_WATCHER}" == "true" ]] && [[ "${USE_CUSTOM_WATCHER}" != "true" ]]; then
+  resolve_default_markwatch_package
+  MARKWATCH_ARCHIVE="${DEFAULT_MARKWATCH_ARCHIVE}"
   MARKWATCH_EXTRACT_DIR="${RUNTIME_DIR}/markwatch"
   MARKWATCH_BIN=""
 
   if [[ -d "${MARKWATCH_EXTRACT_DIR}" ]]; then
     MARKWATCH_BIN="$(resolve_markwatch_binary_from_dir "${MARKWATCH_EXTRACT_DIR}" || true)"
+    if [[ -n "${MARKWATCH_BIN}" ]] && [[ "${MARKWATCH_BIN}" != *"markwatch-${DEFAULT_MARKWATCH_TARGET}"* ]]; then
+      MARKWATCH_BIN=""
+    fi
   fi
 
   if [[ -z "${MARKWATCH_BIN}" ]]; then
