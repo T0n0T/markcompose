@@ -39,8 +39,8 @@ cd markcompose
 
 This default mode uses bundled/default resources:
 
-- editor: `markflow-dist.tar.gz`
-- watcher: auto-detected by host arch (`markwatch-x86_64-unknown-linux-gnu.tar.gz` or `markwatch-aarch64-unknown-linux-gnu.tar.gz`)
+- [editor](https://github.com/T0n0T/markflow): `markflow-dist.tar.gz` 
+- [watcher](https://github.com/T0n0T/markwatch): auto-detected by host arch (`markwatch-x86_64-unknown-linux-gnu.tar.gz` or `markwatch-aarch64-unknown-linux-gnu.tar.gz`)
 
 Lookup order:
 
