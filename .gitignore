@@ -5,3 +5,4 @@
 .markwatch.pid
 .markwatch.log
 .hugo_build.lock
+markdown_test/

@@ -1,83 +1,133 @@
 # Hugo + Nginx MarkCompose
 
-This directory provides a minimal deployment stack:
+Minimal split-port stack for a Hugo blog and a static editor.
 
-- Build blog HTML with `docker.io/hugomods/hugo:dart-sass`
-- Serve blog output via Nginx at `/`
-- Serve editor static files at `/editor/`
-- Serve attachment files at `/attachments/`
-- Optional markdown watcher (`markwatch`) for automatic rebuilds
+## What this stack does
 
-## 1) Start services
+- Builds blog HTML with `docker.io/hugomods/hugo:dart-sass`
+- Serves blog static files on `host_port` (default `8080`)
+- Serves editor static files on `editor_port` (default `8081`)
+- Serves attachments only on blog port under `/attachments/`
+- Optionally runs a markdown watcher (`markwatch`) for automatic rebuilds
 
-### Mode A: custom resources (watcher required, editor optional)
+## Port mapping
+
+- `http://127.0.0.1:<host_port>/` -> blog static output (`/var/www/blog`)
+- `http://127.0.0.1:<editor_port>/` -> editor static files (`/var/www/editor`)
+- `http://127.0.0.1:<host_port>/attachments/...` -> attachments (`/var/www/attachments`)
+
+Notes:
+
+- Editor port does not expose `/attachments` (returns `404`).
+- Opening `/attachments/` on blog port may return `403` when there is no index file and directory listing is disabled.
+- `/editor/` path is not used in split-port mode.
+
+## Requirements
+
+- Docker with `docker compose`
+- `bash`
+- `realpath`
+- `tar` (required when default resources are used)
+- `curl` or `wget` (required when default archives need download)
+
+## Quick start
 
 ```bash
 cd markcompose
-./start.sh <markdown_dir> <watcher_path> [attachments_dir] [host_port]
-./start.sh <markdown_dir> <editor_static_dir> <watcher_path> [attachments_dir] [host_port]
+./start.sh <markdown_dir>
 ```
 
-Shortcut with default attachments path `${markdown_dir}/attachments`:
+This default mode uses bundled/default resources:
+
+- editor: `markflow-dist.tar.gz`
+- watcher: `markwatch-x86_64-unknown-linux-gnu.tar.gz`
+
+Lookup order:
+
+1. Local archive in project root
+2. Otherwise download from GitHub release `latest`
+3. Extract to `./.runtime/`
+
+Default URLs:
+
+- `https://github.com/T0n0T/markflow/releases/latest/download/markflow-dist.tar.gz`
+- `https://github.com/T0n0T/markwatch/releases/latest/download/markwatch-x86_64-unknown-linux-gnu.tar.gz`
+
+## Start modes
+
+Default resources (same as quick start):
 
 ```bash
-./start.sh <markdown_dir> <watcher_path> [host_port]
-./start.sh <markdown_dir> <editor_static_dir> <watcher_path> [host_port]
+./start.sh [options] <markdown_dir>
 ```
 
-`watcher_path` can be either a `markwatch` binary path or an extracted directory that contains the binary.
-If `editor_static_dir` is omitted, an empty directory is mounted to Nginx `/editor/` and startup output will show that editor is not configured.
-
-### Mode B: one-click default resources (recommended)
+Custom watcher only:
 
 ```bash
-cd markcompose
-./start.sh --use-default-resources <markdown_dir> [attachments_dir] [host_port]
+./start.sh --use-custom-watcher <watcher_cmd> <markdown_dir>
 ```
 
-In `--use-default-resources` mode:
-
-- `markflow-dist.tar.gz` (editor static package) and
-  `markwatch-x86_64-unknown-linux-gnu.tar.gz` (watcher package)
-  are checked in current project directory first.
-- If local package is missing, script auto-downloads from:
-  - `https://github.com/T0n0T/markflow/releases/latest/download/markflow-dist.tar.gz`
-  - `https://github.com/T0n0T/markwatch/releases/latest/download/markwatch-x86_64-unknown-linux-gnu.tar.gz`
-- Packages are extracted to `./.runtime/`.
-- `markwatch` starts automatically in background (disable with `--no-watch`).
-
-Examples:
+Custom editor only:
 
 ```bash
-./start.sh /data/blog/markdown /opt/markwatch/bin/markwatch
-./start.sh /data/blog/markdown /data/editor/dist /opt/markwatch/bin/markwatch
-./start.sh --use-default-resources /data/blog/markdown
-./start.sh --use-default-resources /data/blog/markdown /data/blog/attachments 9090
+./start.sh --use-custom-editor <editor_static_dir> <markdown_dir>
 ```
 
-`start.sh` will:
+Custom editor + custom watcher:
 
-1. Validate input paths
-2. Validate `watcher_path` in custom mode, or prepare editor/watcher resources (in default-resources mode)
-3. Generate `.env.runtime`
-4. Run one Hugo build
-5. Start Nginx
-6. Start `markwatch` background process (unless `--no-watch`)
+```bash
+./start.sh --use-custom-editor <editor_static_dir> --use-custom-watcher <watcher_cmd> <markdown_dir>
+```
 
-## 2) Trigger a single build
+`--use-default-resources` is accepted for compatibility, but optional.
+
+## Options
+
+- `-a, --attachments-dir <dir>`: attachments directory (default: `<markdown_dir>/_assets`)
+- `-p, --host-port <port>`: blog host port (default: `8080`)
+- `--editor-port <port>`: editor host port (default: `8081`)
+- `--no-watch`: do not start watcher
+- `--debounce-ms <num>`: default watcher debounce ms (default: `800`)
+- `--reconcile-sec <num>`: default watcher reconcile sec (default: `600`)
+- `--watch-log-level <level>`: default watcher log level (default: `info`)
+
+Watcher notes:
+
+- In custom watcher mode, `--debounce-ms`, `--reconcile-sec`, and `--watch-log-level` are ignored.
+- Use a single foreground command for `<watcher_cmd>` (for example `"markwatch"`). Avoid `&&`, `|`, and trailing `&`, otherwise `stop.sh` may not clean up all child processes.
+
+## Examples
+
+```bash
+./start.sh /data/blog/markdown
+./start.sh --use-custom-watcher "markwatch --some-flag value" /data/blog/markdown
+./start.sh --use-custom-editor /data/editor/dist -p 8080 --editor-port 8081 /data/blog/markdown
+./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" -a /data/blog/attachments -p 8080 --editor-port 8081 /data/blog/markdown
+```
+
+## What `start.sh` does
+
+1. Validates paths and ports (`host_port` and `editor_port` must be different)
+2. Prepares default resources for parts not customized
+3. Writes `.env.runtime`
+4. Runs one Hugo build (`build.sh`)
+5. Starts `nginx` container
+6. Starts `markwatch` in background unless `--no-watch`
+
+## Trigger a single build
 
 ```bash
 cd markcompose
 ./build.sh
 ```
 
-You can also run:
+Or explicitly:
 
 ```bash
 docker compose --env-file .env.runtime run --rm --no-deps hugo-builder
 ```
 
-## 3) Stop services
+## Stop services
 
 ```bash
 cd markcompose
@@ -90,16 +140,18 @@ Remove named volumes too:
 ./stop.sh -v
 ```
 
-`stop.sh` will stop both docker services and the background `markwatch` process (if started by `start.sh`).
+`stop.sh` runs `docker compose down` (or `down --volumes`) and then stops the background `markwatch` process if a PID file exists.
 
-## 4) URL mapping
+## Runtime files
 
-- `/` -> Hugo build output
-- `/editor/` -> editor static files
-- `/attachments/` -> attachment files
+- `.env.runtime`: runtime env used by compose/build commands
+- `.runtime/`: extracted default resources
+- `.markwatch.pid`: watcher PID (if running)
+- `.markwatch.log`: watcher log
 
-## 5) Notes
+## Known constraints
 
 - This stack does not run `hugo server`.
-- In default-resources mode, watcher logs are written to `./.markwatch.log`.
-- Hugo does not automatically rewrite arbitrary attachment links in Markdown. Keep links aligned with your Nginx path rules (for example, `/attachments/...`).
+- `start.sh` rejects paths containing whitespace.
+- Default watcher archive is Linux `x86_64` release; on other platforms, use `--use-custom-watcher`.
+- Hugo does not rewrite arbitrary attachment links in Markdown. Keep links aligned with `/attachments/...`.
