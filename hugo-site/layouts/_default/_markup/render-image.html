@@ -1,0 +1,14 @@
+{{- $dest := .Destination -}}
+{{- $final := $dest -}}
+{{- $picDir := getenv "HUGO_PIC_DIR" | default "_assets" -}}
+{{- $isAbsoluteWithScheme := gt (len (findRE `^[a-zA-Z][a-zA-Z0-9+.-]*:` $dest)) 0 -}}
+{{- $isProtocolRelative := hasPrefix $dest "//" -}}
+{{- if and (not $isAbsoluteWithScheme) (not $isProtocolRelative) (not (hasPrefix $dest "/")) (ne $picDir "") -}}
+  {{- $normalized := replaceRE "^\\./+" "" $dest -}}
+  {{- $prefix := printf "%s/" $picDir -}}
+  {{- if hasPrefix $normalized $prefix -}}
+    {{- $rest := strings.TrimPrefix $prefix $normalized -}}
+    {{- $final = printf "/attachments/%s" $rest -}}
+  {{- end -}}
+{{- end -}}
+<img src="{{ $final | safeURL }}" alt="{{ .Text }}"{{ with .Title }} title="{{ . }}"{{ end }} loading="lazy" decoding="async">

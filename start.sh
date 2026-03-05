@@ -22,7 +22,8 @@ Options:
                                (default behavior; kept for compatibility).
   --use-custom-editor <dir>    Use custom editor static directory instead of bundled markflow dist.
   --use-custom-watcher <cmd>   Use custom watcher command string instead of bundled markwatch.
-  -a, --attachments-dir <dir>  Attachments directory (default: <markdown_dir>/_assets).
+  --pic-dir <name>             Image folder name under markdown dir (default: _assets).
+  -a, --attachments-dir <dir>  Attachments directory (default: <markdown_dir>/<pic_dir>).
   -p, --host-port <port>       Host port (default: 8080).
   --editor-port <port>         Editor host port (default: 8081).
   --no-watch                   Do not start markwatch watcher.
@@ -35,6 +36,7 @@ Examples:
   ./start.sh /data/blog/md
   ./start.sh --use-custom-watcher "markwatch --some-flag value" /data/blog/md
   ./start.sh --use-custom-editor /data/editor/dist -p 8080 --editor-port 8081 /data/blog/md
+  ./start.sh --pic-dir images /data/blog/md
   ./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" -a /data/blog/attachments -p 8080 --editor-port 8081 /data/blog/md
 USAGE
 }
@@ -83,6 +85,17 @@ check_port() {
   (( port >= 1 && port <= 65535 )) || die "${name} must be in range 1..65535: ${port}"
 }
 
+check_pic_dir() {
+  local pic_dir="$1"
+
+  [[ -n "${pic_dir}" ]] || die "pic_dir must not be empty"
+  [[ "${pic_dir}" != "." && "${pic_dir}" != ".." ]] || die "pic_dir cannot be '.' or '..': ${pic_dir}"
+  [[ "${pic_dir}" != */* ]] || die "pic_dir must be a single folder name without '/': ${pic_dir}"
+  if [[ "${pic_dir}" =~ [[:space:]] ]]; then
+    die "pic_dir contains whitespace, which is unsupported: ${pic_dir}"
+  fi
+}
+
 check_docker_compose() {
   docker compose version >/dev/null 2>&1 || die "docker compose is not available"
 }
@@ -91,13 +104,15 @@ write_env_file() {
   local markdown_dir="$1"
   local editor_dir="$2"
   local attachments_dir="$3"
-  local host_port="$4"
-  local editor_port="$5"
+  local pic_dir="$4"
+  local host_port="$5"
+  local editor_port="$6"
 
   cat >"${ENV_FILE}" <<ENV
 MARKDOWN_DIR=${markdown_dir}
 EDITOR_STATIC_DIR=${editor_dir}
 ATTACHMENTS_DIR=${attachments_dir}
+PIC_DIR=${pic_dir}
 HOST_PORT=${host_port}
 EDITOR_PORT=${editor_port}
 COMPOSE_PROJECT_NAME=markcompose
@@ -224,7 +239,7 @@ start_markwatch() {
 
   stop_existing_markwatch
   touch "${MARKWATCH_LOG_FILE}"
-  build_cmd="docker compose --env-file \"${ENV_FILE}\" run --rm --no-deps hugo-builder"
+  build_cmd="$(printf '%q' "${SCRIPT_DIR}/build.sh") $(printf '%q' "${ENV_FILE}")"
 
   run_cmd="${watcher_cmd} --root $(printf '%q' "${markdown_dir}") --workdir $(printf '%q' "${SCRIPT_DIR}") --cmd $(printf '%q' "${build_cmd}") --shell sh"
   if [[ "${use_default_watcher}" == "true" ]]; then
@@ -266,6 +281,7 @@ POSITIONAL=()
 EDITOR_STATIC_DIR=""
 MARKWATCH_CMD=""
 ATTACHMENTS_DIR=""
+PIC_DIR=""
 HOST_PORT="8080"
 EDITOR_PORT="8081"
 
@@ -289,6 +305,11 @@ while (( $# > 0 )); do
     -a|--attachments-dir)
       (( $# >= 2 )) || die "$1 requires a directory path"
       ATTACHMENTS_DIR="$2"
+      shift 2
+      ;;
+    --pic-dir)
+      (( $# >= 2 )) || die "$1 requires a folder name"
+      PIC_DIR="$2"
       shift 2
       ;;
     -p|--host-port)
@@ -359,10 +380,14 @@ if (( $# != 1 )); then
 fi
 
 MARKDOWN_DIR="$1"
+if [[ -z "${PIC_DIR}" ]]; then
+  PIC_DIR="_assets"
+fi
 if [[ -z "${ATTACHMENTS_DIR}" ]]; then
-  ATTACHMENTS_DIR="${MARKDOWN_DIR}/_assets"
+  ATTACHMENTS_DIR="${MARKDOWN_DIR}/${PIC_DIR}"
 fi
 
+check_pic_dir "${PIC_DIR}"
 check_num "${DEBOUNCE_MS}" "debounce-ms"
 check_num "${RECONCILE_SEC}" "reconcile-sec"
 check_port "${HOST_PORT}" "host_port"
@@ -435,12 +460,13 @@ check_no_spaces "${MARKDOWN_DIR}"
 check_no_spaces "${EDITOR_STATIC_DIR}"
 check_no_spaces "${ATTACHMENTS_DIR}"
 
-write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${ATTACHMENTS_DIR}" "${HOST_PORT}" "${EDITOR_PORT}"
+write_env_file "${MARKDOWN_DIR}" "${EDITOR_STATIC_DIR}" "${ATTACHMENTS_DIR}" "${PIC_DIR}" "${HOST_PORT}" "${EDITOR_PORT}"
 
 echo "Configuration written to ${ENV_FILE}"
 echo "  MARKDOWN_DIR=${MARKDOWN_DIR}"
 echo "  EDITOR_STATIC_DIR=${EDITOR_STATIC_DIR}"
 echo "  ATTACHMENTS_DIR=${ATTACHMENTS_DIR}"
+echo "  PIC_DIR=${PIC_DIR}"
 echo "  HOST_PORT=${HOST_PORT}"
 echo "  EDITOR_PORT=${EDITOR_PORT}"
 

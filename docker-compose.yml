@@ -2,6 +2,8 @@ services:
   hugo-builder:
     image: docker.io/hugomods/hugo:dart-sass
     working_dir: /site
+    environment:
+      - HUGO_PIC_DIR=${PIC_DIR:-_assets}
     volumes:
       - ${MARKDOWN_DIR:-./_markdown_not_set}:/markdown:ro
       - ./hugo-site:/site

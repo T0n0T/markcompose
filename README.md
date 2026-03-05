@@ -8,7 +8,7 @@ Minimal split-port stack for a Hugo blog and a static editor.
 - Serves blog static files on `host_port` (default `8080`)
 - Serves editor static files on `editor_port` (default `8081`)
 - Serves attachments only on blog port under `/attachments/`
-- Optionally runs a markdown watcher (`markwatch`) for automatic rebuilds
+- Optionally runs a markdown watcher (`markwatch`) for automatic release builds
 
 ## Port mapping
 
@@ -83,7 +83,8 @@ Custom editor + custom watcher:
 
 ## Options
 
-- `-a, --attachments-dir <dir>`: attachments directory (default: `<markdown_dir>/_assets`)
+- `--pic-dir <name>`: image folder name under markdown root (default: `_assets`)
+- `-a, --attachments-dir <dir>`: attachments directory (default: `<markdown_dir>/<pic_dir>`)
 - `-p, --host-port <port>`: blog host port (default: `8080`)
 - `--editor-port <port>`: editor host port (default: `8081`)
 - `--no-watch`: do not start watcher
@@ -100,6 +101,7 @@ Watcher notes:
 
 ```bash
 ./start.sh /data/blog/markdown
+./start.sh --pic-dir images /data/blog/markdown
 ./start.sh --use-custom-watcher "markwatch --some-flag value" /data/blog/markdown
 ./start.sh --use-custom-editor /data/editor/dist -p 8080 --editor-port 8081 /data/blog/markdown
 ./start.sh --use-custom-editor /data/editor/dist --use-custom-watcher "markwatch" -a /data/blog/attachments -p 8080 --editor-port 8081 /data/blog/markdown
@@ -110,7 +112,7 @@ Watcher notes:
 1. Validates paths and ports (`host_port` and `editor_port` must be different)
 2. Prepares default resources for parts not customized
 3. Writes `.env.runtime`
-4. Runs one Hugo build (`build.sh`)
+4. Runs one release build (`build.sh`)
 5. Starts `nginx` container
 6. Starts `markwatch` in background unless `--no-watch`
 
@@ -121,11 +123,13 @@ cd markcompose
 ./build.sh
 ```
 
-Or explicitly:
+`build.sh` is a release pipeline, not just raw `hugo`:
 
-```bash
-docker compose --env-file .env.runtime run --rm --no-deps hugo-builder
-```
+1. Build to a temporary staging directory
+2. Run gate checks (for example missing `/attachments/...` files referenced by generated HTML)
+3. Replace the published `hugo_public` output with clean staged files (removes stale files)
+
+Watcher-triggered builds use the same `build.sh` pipeline.
 
 ## Stop services
 
@@ -154,4 +158,6 @@ Remove named volumes too:
 - This stack does not run `hugo server`.
 - `start.sh` rejects paths containing whitespace.
 - Default watcher archive is Linux `x86_64` release; on other platforms, use `--use-custom-watcher`.
-- Hugo does not rewrite arbitrary attachment links in Markdown. Keep links aligned with `/attachments/...`.
+- Markdown images whose relative path starts with `<pic_dir>/` are rewritten to `/attachments/...` during Hugo render.
+- Absolute URLs, protocol-relative URLs, root-absolute paths (`/foo`), and non-image Markdown links are not rewritten.
+- Build/publish is full-site Hugo build each run (not cross-run incremental).
