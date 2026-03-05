@@ -1,8 +1,0 @@
-baseURL = "/"
-languageCode = "zh-cn"
-title = "My Blog"
-
-[markup]
-  [markup.goldmark]
-    [markup.goldmark.renderer]
-      unsafe = true

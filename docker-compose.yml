@@ -1,11 +1,11 @@
 services:
   hugo-builder:
-    image: docker.io/hugomods/hugo:dart-sass
+    image: docker.io/hugomods/hugo:dart-sass-non-root
     working_dir: /site
     environment:
       - HUGO_PIC_DIR=${PIC_DIR:-_assets}
     volumes:
-      - ${MARKDOWN_DIR:-./_markdown_not_set}:/markdown:ro
+      - ${MARKDOWN_DIR:?MARKDOWN_DIR is required}:/markdown:ro
       - ./hugo-site:/site
       - hugo_public:/public
     command:
@@ -26,8 +26,8 @@ services:
       - ${EDITOR_PORT:-8081}:81
     volumes:
       - hugo_public:/var/www/blog:ro
-      - ${EDITOR_STATIC_DIR:-./_editor_not_set}:/var/www/editor:ro
-      - ${ATTACHMENTS_DIR:-./_attachments_not_set}:/var/www/attachments:ro
+      - ${EDITOR_STATIC_DIR:?EDITOR_STATIC_DIR is required}:/var/www/editor:ro
+      - ${ATTACHMENTS_DIR:?ATTACHMENTS_DIR is required}:/var/www/attachments:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
 
