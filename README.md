@@ -8,6 +8,7 @@ Minimal split-port stack for a Hugo blog and a static editor.
 - Serves blog static files on `HOST_PORT` (default `8080`)
 - Serves editor static files on `EDITOR_PORT` (default `8081`)
 - Serves markdown-managed assets from Hugo output under `/<ASSETS_DIR>/` (default `/_assets/`)
+- Proxies Waline comments API/admin under `/waline/` on the blog port
 - Optionally runs a markdown watcher (`markwatch`) for automatic release builds
 
 ## Port mapping
@@ -15,6 +16,7 @@ Minimal split-port stack for a Hugo blog and a static editor.
 - `http://127.0.0.1:<HOST_PORT>/` -> blog static output (`/var/www/blog`)
 - `http://127.0.0.1:<EDITOR_PORT>/` -> editor static files (`/var/www/editor`)
 - `http://127.0.0.1:<HOST_PORT>/<ASSETS_DIR>/...` -> markdown assets from Hugo output (`/var/www/blog/<ASSETS_DIR>/...`)
+- `http://127.0.0.1:<HOST_PORT>/waline/` -> Waline API/admin (`/waline/ui`)
 
 Notes:
 
@@ -144,8 +146,32 @@ Notes:
 2. Prepares default resources for parts not customized
 3. Writes `.env.runtime`
 4. Runs one release build (`build.sh`)
-5. Starts `nginx` container
+5. Starts `waline` + `nginx` containers
 6. Starts `markwatch` in background unless `--no-watch`
+
+## Waline configuration
+
+Set these in `.env` (recommended) before `start.sh`:
+
+- `WALINE_JWT_TOKEN`: required in production; use a long random secret
+- `WALINE_SITE_NAME`: optional site name shown by Waline (default `Blog Comments`)
+- `WALINE_SITE_URL`: optional canonical site URL (default `http://127.0.0.1:8080`)
+- `WALINE_SERVER_URL`: optional forced public base URL for Waline API/admin (recommended when using Cloudflare Tunnel)
+
+Cloudflare Tunnel note:
+
+- Keep `Host` as your public domain
+- Keep `X-Forwarded-Proto: https` so Waline admin renders `https://.../api/` instead of `http://.../api/`
+
+After startup, initialize admin at `http://127.0.0.1:<HOST_PORT>/waline/ui`.
+
+If Waline logs show `no such table: wl_Users` or `wl_Comment`, initialize SQLite from the official seed DB:
+
+```bash
+curl -fL -o /tmp/waline.sqlite https://raw.githubusercontent.com/walinejs/waline/main/assets/waline.sqlite
+cat /tmp/waline.sqlite | docker compose --env-file .env.runtime exec -T waline sh -lc 'cat > /app/data/waline.sqlite'
+docker compose --env-file .env.runtime restart waline nginx
+```
 
 ## Trigger a single build
 
@@ -197,6 +223,7 @@ Remove named volumes too:
 - `.env` (optional): baseline env. If present, `start.sh` uses it as the base and then overwrites runtime-managed keys into `.env.runtime`
 - `.env.runtime`: runtime env used by compose/build commands
 - `docker-compose.yml` maps `ASSETS_DIR` to `HUGO_ASSETS_DIR` for Hugo render hooks
+- `hugo-site/config/_default/hugo.toml`: Hugo main config (LoveIt/search/comment settings)
 - `.runtime/`: downloaded default archives and extracted default resources
 - `.markwatch.pid`: watcher PID (if running)
 - `.markwatch.log`: watcher log

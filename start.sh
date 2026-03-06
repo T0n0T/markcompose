@@ -589,10 +589,10 @@ print_item "Running release build pipeline (build.sh)."
 "${BUILD_SCRIPT}" "${ENV_FILE}"
 
 print_section "Phase 6/6: Start Services"
-print_item "Starting nginx container."
+print_item "Starting waline and nginx containers."
 (
   cd "${SCRIPT_DIR}"
-  docker compose --env-file "${ENV_FILE}" up -d nginx
+  docker compose --env-file "${ENV_FILE}" up -d --force-recreate waline nginx
 )
 
 if [[ "${WATCHER_ENABLED}" == "true" ]]; then
@@ -611,6 +611,8 @@ print_section "Startup Summary"
 print_kv "Blog" "http://127.0.0.1:${HOST_PORT}/"
 print_kv "Editor" "http://127.0.0.1:${EDITOR_PORT}/"
 print_kv "Assets" "http://127.0.0.1:${HOST_PORT}/${ASSETS_DIR}/"
+print_kv "Waline API" "http://127.0.0.1:${HOST_PORT}/waline/"
+print_kv "Waline Admin" "http://127.0.0.1:${HOST_PORT}/waline/ui"
 if [[ "${MARKWATCH_STATUS}" == "started" ]]; then
   print_kv "Markwatch" "started (PID $(cat "${MARKWATCH_PID_FILE}"))"
   print_kv "Watch Log" "${MARKWATCH_LOG_FILE}"
