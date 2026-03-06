@@ -15,8 +15,8 @@ Commands:
   help    Show this message
 
 Examples:
-  ./markcompose.sh start markdown_test
-  ./markcompose.sh start --content-adapter adapter/prepare_content.sh markdown_test
+  ./markcompose.sh start <markdown_path>
+  ./markcompose.sh start --content-adapter adapter/prepare_content.sh <markdown_path>
   ./markcompose.sh build
   ./markcompose.sh stop
 EOF
