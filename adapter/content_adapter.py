@@ -1,28 +1,3 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-usage() {
-  cat >&2 <<'EOF'
-Usage:
-  content-adapter/prepare_content.sh <input_dir> <output_dir> [config_toml]
-
-Environment:
-  ASSETS_DIR  Name of the asset directory under <input_dir> to ignore (default: _assets)
-EOF
-}
-
-if (( $# < 2 || $# > 3 )); then
-  usage
-  exit 2
-fi
-
-INPUT_DIR="$1"
-OUTPUT_DIR="$2"
-CONFIG_PATH="${3:-${SCRIPT_DIR}/content-adapter.toml}"
-
-python3 - "${INPUT_DIR}" "${OUTPUT_DIR}" "${CONFIG_PATH}" <<'PY'
 from __future__ import annotations
 
 import os
@@ -32,6 +7,7 @@ import shutil
 import posixpath
 import datetime as datetime_lib
 import urllib.parse
+from dataclasses import dataclass
 
 import tomllib
 import yaml
@@ -40,6 +16,22 @@ import yaml
 def die(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def info(msg: str) -> None:
+    print(f"→ {msg}")
+
+
+def kv(label: str, value: object) -> None:
+    print(f"  {label:<12} {value}")
+
+
+@dataclass
+class AdaptStats:
+    files_written: int = 0
+    sidecars_applied: int = 0
+    stripped_h1: int = 0
+    rewritten_link_docs: int = 0
 
 
 def load_toml(path: str) -> dict:
@@ -431,20 +423,27 @@ def main() -> None:
     rewrite_md_links = bool(config.get("rewrite_md_links", True))
     sidecar_exts = config.get("sidecar_exts", [".meta.yaml", ".meta.yml"])
     if not isinstance(sidecar_exts, list) or not all(isinstance(x, str) for x in sidecar_exts):
-        die("sidecar_exts must be an array of strings in content-adapter.toml")
+        die("sidecar_exts must be an array of strings in adapter/content-adapter.toml")
 
     ignore_dirs = set(config.get("ignore_dirs", [".git", ".runtime"]))
     if not all(isinstance(x, str) for x in ignore_dirs):
-        die("ignore_dirs must be an array of strings in content-adapter.toml")
+        die("ignore_dirs must be an array of strings in adapter/content-adapter.toml")
 
     pic_dir = os.environ.get("ASSETS_DIR", "_assets").strip() or "_assets"
 
     if not os.path.isdir(input_dir):
         die(f"Input dir not found: {input_dir}")
 
+    info("Content adapter")
+    kv("Input", input_dir)
+    kv("Output", output_dir)
+    kv("Config", config_path)
+    kv("Assets dir", pic_dir)
+
     ensure_clean_dir(output_dir)
 
     source_markdown_files = list_markdown_files(input_dir, pic_dir=pic_dir, ignore_dirs=ignore_dirs)
+    stats = AdaptStats()
 
     # Build a mapping from input relpath -> output relpath (posix) for link rewriting.
     in_to_out_posix: dict[str, str] = {}
@@ -469,6 +468,8 @@ def main() -> None:
 
         _kind, front_matter_data, body = split_front_matter(source_text)
         sidecar_data = load_sidecar(source_path, sidecar_exts=sidecar_exts)
+        if sidecar_data:
+            stats.sidecars_applied += 1
 
         source_stem = os.path.splitext(os.path.basename(source_path))[0]
         inferred_title, h1_idx = infer_title(body, source_stem)
@@ -476,24 +477,25 @@ def main() -> None:
         inferred_slug = slugify(source_stem)
 
         merged = dict(front_matter_data)
-        # Fill missing fields for theme stability.
         merged.setdefault("title", inferred_title)
         merged.setdefault("date", inferred_date)
         merged.setdefault("draft", default_draft)
         merged.setdefault("slug", inferred_slug)
-
-        # Sidecar meta overrides everything explicitly.
         merged.update(sidecar_data)
 
         if strip_first_h1 and h1_idx is not None:
-            # Only strip if the leading H1 matches the final title (avoid surprises
-            # when a document intentionally contains an H1 different from Params.title).
             final_title = merged.get("title")
             if isinstance(final_title, str) and final_title.strip() == inferred_title.strip():
-                body = strip_first_h1_if_leading(body, h1_idx)
+                stripped_body = strip_first_h1_if_leading(body, h1_idx)
+                if stripped_body != body:
+                    stats.stripped_h1 += 1
+                body = stripped_body
 
         if rewrite_md_links:
-            body = rewrite_md_links_in_body(body, current_src_rel_posix=source_rel_path, in_to_out_posix=in_to_out_posix)
+            rewritten_body = rewrite_md_links_in_body(body, current_src_rel_posix=source_rel_path, in_to_out_posix=in_to_out_posix)
+            if rewritten_body != body:
+                stats.rewritten_link_docs += 1
+            body = rewritten_body
 
         fm_yaml = dump_front_matter_yaml(merged)
         rendered_output = "---\n" + fm_yaml + "---\n\n" + body.lstrip("\r\n")
@@ -502,8 +504,14 @@ def main() -> None:
 
         with open(output_path, "w", encoding="utf-8", newline="\n") as file_handle:
             file_handle.write(rendered_output)
+        stats.files_written += 1
+
+    info("Adaptation summary")
+    kv("Markdown", stats.files_written)
+    kv("Sidecars", stats.sidecars_applied)
+    kv("H1 stripped", stats.stripped_h1)
+    kv("Links fixed", stats.rewritten_link_docs)
 
 
 if __name__ == "__main__":
     main()
-PY

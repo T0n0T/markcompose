@@ -24,7 +24,7 @@ services:
       - SQLITE_PATH=/app/data
       - JWT_TOKEN=${WALINE_JWT_TOKEN:-change-this-jwt-token}
       - SITE_NAME=${WALINE_SITE_NAME:-Blog Comments}
-      - SITE_URL=${WALINE_SITE_URL:-}
+      - SITE_URL=${HUGO_BASE_URL:-http://127.0.0.1:${HOST_PORT:-8080}/}
       - SERVER_URL=${WALINE_SERVER_URL:-}
     volumes:
       - waline_data:/app/data

@@ -15,7 +15,7 @@
 在仓库根目录执行：
 
 ```bash
-./content-adapter/prepare_content.sh examples/meta-yml/input .runtime/examples-meta-yml content-adapter/content-adapter.toml
+./adapter/prepare_content.sh examples/meta-yml/input .runtime/examples-meta-yml adapter/content-adapter.toml
 ```
 
 检查输出：

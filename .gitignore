@@ -7,3 +7,5 @@
 .markwatch.log
 .hugo_build.lock
 markdown_test/
+__pycache__/
+*.pyc

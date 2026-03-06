@@ -1,4 +1,4 @@
-# 03 content-adapter 规则与元数据覆盖
+# 03 adapter 规则与元数据覆盖
 
 ## 1. 输入输出定位
 
@@ -29,7 +29,7 @@
   - 优先文件名转 slug（去日期前缀、转小写、替换非法字符）
   - ASCII 失败时保留 Unicode 兜底
 - `draft`：
-  - 使用 `content-adapter.toml` 的 `default_draft`（默认 `false`）
+  - 使用 `adapter/content-adapter.toml` 的 `default_draft`（默认 `false`）
 
 ## 4. H1 去重规则
 
