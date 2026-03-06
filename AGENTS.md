@@ -10,7 +10,7 @@
 - Runtime artifacts are written to `.runtime/`, `.env.runtime`, and `.markwatch.*`; do not commit generated files.
 
 ## Build, Test, and Development Commands
-- `./markcompose.sh init-site`: create a fresh `hugo-site/` skeleton with the Hugo Docker image.
+- `./markcompose.sh init-site`: initialize `hugo-site/`; bootstrap it if `hugo.toml` is missing, otherwise just sync reusable layouts.
 - `./markcompose.sh start <markdown_dir>`: validate inputs, build once, and start Nginx/Waline.
 - `./markcompose.sh start --content-adapter adapter/prepare_content.sh <markdown_dir>`: same as above, with Markdown adaptation enabled.
 - `./markcompose.sh build [env_file]`: run the release build pipeline and publish into the Docker volume.

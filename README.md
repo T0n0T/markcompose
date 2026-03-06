@@ -62,7 +62,7 @@ cd markcompose
 ./markcompose.sh init-site
 ```
 
-这会用 Hugo Docker 镜像执行 `hugo new site hugo-site`，然后把仓库里的复用 layouts 同步进去，方便你先改站点配置、菜单、主题参数。
+如果 `hugo-site/hugo.toml` 不存在，这会用 Hugo Docker 镜像补齐站点骨架；如果 `hugo-site/hugo.toml` 已存在，则不会覆盖现有站点，只会同步复用 layouts。这样用户可以先改站点配置、菜单、主题参数。
 
 ### 3.2 最快启动
 
@@ -164,7 +164,7 @@ cp .env.example .env
 
 注意：
 
-- 如果 `./hugo-site` 已存在，这个命令会直接失败，避免覆盖你手上的配置
+- 如果 `./hugo-site/hugo.toml` 已存在，这个命令不会覆盖现有站点，只会同步复用 layouts
 
 ### 5.2 默认模式
 

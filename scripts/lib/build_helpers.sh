@@ -6,6 +6,24 @@ readonly MC_BUILD_REUSABLE_LAYOUTS_DIR="${MARKCOMPOSE_REPO_ROOT}/hugo-reuse/layo
 readonly MC_BUILD_HUGO_IMAGE="docker.io/hugomods/hugo:dart-sass-non-root"
 readonly MC_BUILD_DEFAULT_ADAPTER_OUTPUT_DIR="${MARKCOMPOSE_RUNTIME_DIR}/content-adapted"
 
+mc::build::has_hugo_site_config() {
+  [[ -f "${MC_BUILD_HUGO_SITE_DIR}/hugo.toml" ]]
+}
+
+mc::build::bootstrap_hugo_site_files() {
+  local temp_dir_name=""
+
+  while :; do
+    temp_dir_name=".tmp-hugo-site-init.${RANDOM}.${RANDOM}"
+    [[ ! -e "${MARKCOMPOSE_REPO_ROOT}/${temp_dir_name}" ]] && break
+  done
+
+  mc::build::run_hugo_new_site "${temp_dir_name}"
+  mkdir -p "${MC_BUILD_HUGO_SITE_DIR}"
+  cp -a "${MARKCOMPOSE_REPO_ROOT}/${temp_dir_name}/." "${MC_BUILD_HUGO_SITE_DIR}/"
+  rm -rf "${MARKCOMPOSE_REPO_ROOT}/${temp_dir_name}"
+}
+
 mc::build::ensure_reusable_layouts() {
   [[ -d "${MC_BUILD_REUSABLE_LAYOUTS_DIR}" ]] || mc::die "Reusable layouts directory not found: ${MC_BUILD_REUSABLE_LAYOUTS_DIR}"
   [[ -f "${MC_BUILD_REUSABLE_LAYOUTS_DIR}/_markup/render-image.html" ]] || mc::die "Reusable template not found: ${MC_BUILD_REUSABLE_LAYOUTS_DIR}/_markup/render-image.html"
@@ -41,23 +59,40 @@ mc::build::run_hugo_new_site() {
 }
 
 mc::build::init_hugo_site() {
-  if [[ -e "${MC_BUILD_HUGO_SITE_DIR}" ]]; then
-    mc::die "hugo-site already exists: ${MC_BUILD_HUGO_SITE_DIR}"
+  if mc::build::has_hugo_site_config; then
+    mc::info "hugo-site already has hugo.toml; skipping Hugo scaffold generation."
+    mc::kv "Site dir" "${MC_BUILD_HUGO_SITE_DIR}"
+    mc::kv "Config" "${MC_BUILD_HUGO_SITE_DIR}/hugo.toml"
+    mc::build::install_reusable_layouts
+    mc::success "Reusable layouts synced into existing hugo-site/layouts."
+    return 0
   fi
 
-  mc::step "Initializing hugo-site with Hugo image"
-  mc::build::run_hugo_new_site "hugo-site"
+  if [[ -d "${MC_BUILD_HUGO_SITE_DIR}" ]]; then
+    mc::step "hugo-site exists without hugo.toml. Bootstrapping site files into the existing directory"
+    mc::build::bootstrap_hugo_site_files
+  else
+    mc::step "Initializing hugo-site with Hugo image"
+    mc::build::run_hugo_new_site "hugo-site"
+  fi
+
   mc::build::install_reusable_layouts
   mc::success "Initialized hugo-site and installed reusable layouts."
 }
 
 mc::build::init_hugo_site_if_missing() {
-  if [[ -d "${MC_BUILD_HUGO_SITE_DIR}" ]]; then
+  if mc::build::has_hugo_site_config; then
     return 0
   fi
 
-  mc::step "hugo-site not found. Bootstrapping a fresh Hugo site"
-  mc::build::run_hugo_new_site "hugo-site"
+  if [[ -d "${MC_BUILD_HUGO_SITE_DIR}" ]]; then
+    mc::step "hugo-site exists without hugo.toml. Bootstrapping site files into the existing directory"
+    mc::build::bootstrap_hugo_site_files
+  else
+    mc::step "hugo-site not found. Bootstrapping a fresh Hugo site"
+    mc::build::run_hugo_new_site "hugo-site"
+  fi
+
   mc::build::install_reusable_layouts
   mc::success "Initialized hugo-site and installed reusable layouts."
 }

@@ -12,12 +12,11 @@ usage() {
 Usage:
   markcompose.sh init-site
 
-Initialize a fresh ./hugo-site directory using the Hugo Docker image,
-then copy reusable layouts into ./hugo-site/layouts/.
+Initialize ./hugo-site for first-time setup.
 
-Notes:
-  - This command is for first-time project setup.
-  - It fails if ./hugo-site already exists.
+Behavior:
+  - If ./hugo-site/hugo.toml is missing, bootstrap site files with the Hugo Docker image.
+  - If ./hugo-site/hugo.toml already exists, do not overwrite the site; just sync reusable layouts.
 EOF
 }
 
@@ -43,7 +42,7 @@ main() {
   mc::section "Init Hugo site"
   mc::kv "Target" "${MC_BUILD_HUGO_SITE_DIR}"
   mc::build::init_hugo_site
-  mc::info "You can now edit ./hugo-site before running './markcompose.sh start ...'."
+  mc::info "You can now edit ./hugo-site/hugo.toml before running './markcompose.sh start ...'."
 }
 
 main "$@"
