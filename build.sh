@@ -124,7 +124,7 @@ EOF
 publish_staging_to_public() {
   local publish_cmd='set -eu
 find /public -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-cp -a /staging/. /public/
+cp -R /staging/. /public/
 
 # Ensure nginx can traverse/read published site content.
 chmod 755 /public
@@ -134,6 +134,7 @@ find /public -type f -exec chmod 644 {} +'
   (
     cd "${REPO_ROOT}"
     docker compose --env-file "${ENV_FILE}" run --rm --no-deps \
+      --user 0:0 \
       -v "${STAGING_DIR}:/staging:ro" \
       hugo-builder \
       sh -lc "${publish_cmd}"
