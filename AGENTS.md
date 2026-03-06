@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `markcompose.sh` is the only top-level user entrypoint; it dispatches `start`, `build`, and `stop`.
+- `markcompose.sh` is the only top-level user entrypoint; it dispatches `init-site`, `start`, `build`, and `stop`.
 - `scripts/` contains command implementations; shared shell helpers live in `scripts/lib/`.
 - `adapter/` contains optional Markdown adaptation logic: `prepare_content.sh`, `content_adapter.py`, and `content-adapter.toml`.
 - `hugo-site/` is the Hugo project, theme config, and static site source.
@@ -10,6 +10,7 @@
 - Runtime artifacts are written to `.runtime/`, `.env.runtime`, and `.markwatch.*`; do not commit generated files.
 
 ## Build, Test, and Development Commands
+- `./markcompose.sh init-site`: create a fresh `hugo-site/` skeleton with the Hugo Docker image.
 - `./markcompose.sh start <markdown_dir>`: validate inputs, build once, and start Nginx/Waline.
 - `./markcompose.sh start --content-adapter adapter/prepare_content.sh <markdown_dir>`: same as above, with Markdown adaptation enabled.
 - `./markcompose.sh build [env_file]`: run the release build pipeline and publish into the Docker volume.

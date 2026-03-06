@@ -4,7 +4,8 @@
 
 ## 目录结构
 
-- `markcompose.sh`：子命令分发器（`start` / `build` / `stop`）
+- `markcompose.sh`：子命令分发器（`init-site` / `start` / `build` / `stop`）
+- `init_site.sh`：初始化 `hugo-site` 骨架
 - `start.sh`：启动流程实现
 - `build.sh`：构建与发布流程实现
 - `stop.sh`：停止流程实现

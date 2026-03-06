@@ -28,19 +28,36 @@ mc::build::install_reusable_layouts() {
   done < <(find "${MC_BUILD_REUSABLE_LAYOUTS_DIR}" -type f -print0)
 }
 
-mc::build::init_hugo_site_if_missing() {
-  if [[ -d "${MC_BUILD_HUGO_SITE_DIR}" ]]; then
-    return 0
-  fi
+mc::build::run_hugo_new_site() {
+  local target_dir_name="${1:-hugo-site}"
 
   mc::build::ensure_reusable_layouts
-  mc::step "hugo-site not found. Initializing with Hugo image"
   docker run --rm \
     -u "$(id -u):$(id -g)" \
     -v "${MARKCOMPOSE_REPO_ROOT}:/work" \
     -w /work \
     "${MC_BUILD_HUGO_IMAGE}" \
-    sh -lc 'hugo new site hugo-site'
+    sh -lc "hugo new site ${target_dir_name}"
+}
+
+mc::build::init_hugo_site() {
+  if [[ -e "${MC_BUILD_HUGO_SITE_DIR}" ]]; then
+    mc::die "hugo-site already exists: ${MC_BUILD_HUGO_SITE_DIR}"
+  fi
+
+  mc::step "Initializing hugo-site with Hugo image"
+  mc::build::run_hugo_new_site "hugo-site"
+  mc::build::install_reusable_layouts
+  mc::success "Initialized hugo-site and installed reusable layouts."
+}
+
+mc::build::init_hugo_site_if_missing() {
+  if [[ -d "${MC_BUILD_HUGO_SITE_DIR}" ]]; then
+    return 0
+  fi
+
+  mc::step "hugo-site not found. Bootstrapping a fresh Hugo site"
+  mc::build::run_hugo_new_site "hugo-site"
   mc::build::install_reusable_layouts
   mc::success "Initialized hugo-site and installed reusable layouts."
 }

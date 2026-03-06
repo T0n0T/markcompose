@@ -16,6 +16,7 @@
 
 常用子命令：
 
+- `./markcompose.sh init-site`：初始化 `hugo-site` 骨架，方便先配置站点
 - `./markcompose.sh start ...`：启动服务、先构建一次、按需启动 watcher
 - `./markcompose.sh build ...`：单次发布构建
 - `./markcompose.sh stop ...`：停止容器与 watcher
@@ -54,10 +55,18 @@
 
 ## 3. 快速开始
 
-### 3.1 最快启动
+### 3.1 先初始化站点骨架（推荐第一次用时执行）
 
 ```bash
 cd markcompose
+./markcompose.sh init-site
+```
+
+这会用 Hugo Docker 镜像执行 `hugo new site hugo-site`，然后把仓库里的复用 layouts 同步进去，方便你先改站点配置、菜单、主题参数。
+
+### 3.2 最快启动
+
+```bash
 ./markcompose.sh start <markdown_dir>
 ```
 
@@ -70,15 +79,16 @@ cd markcompose
 5. 启动 `waline` + `nginx`
 6. 按需启动 watcher
 
-### 3.2 最常见的三个命令
+### 3.3 最常见的四个命令
 
 ```bash
+./markcompose.sh init-site
 ./markcompose.sh start <markdown_dir>
 ./markcompose.sh build
 ./markcompose.sh stop
 ```
 
-### 3.3 如果你的 Markdown 仓库不需要 adapter
+### 3.4 如果你的 Markdown 仓库不需要 adapter
 
 那就**别开**。adapter 是可选能力，不是硬性仪式感。
 
@@ -86,7 +96,7 @@ cd markcompose
 ./markcompose.sh start <markdown_dir>
 ```
 
-### 3.4 如果你的 Markdown 仓库需要先转换再给 Hugo
+### 3.5 如果你的 Markdown 仓库需要先转换再给 Hugo
 
 ```bash
 ./markcompose.sh start --content-adapter adapter/prepare_content.sh <markdown_dir>
@@ -139,9 +149,24 @@ cp .env.example .env
 
 ---
 
-## 5. 启动方式
+## 5. 启动与初始化方式
 
-### 5.1 默认模式
+### 5.1 初始化 hugo-site
+
+```bash
+./markcompose.sh init-site
+```
+
+适用场景：
+
+- 第一次拉下仓库，还没准备 `hugo-site`
+- 想先配置 Hugo 站点，再接 Markdown 仓库
+
+注意：
+
+- 如果 `./hugo-site` 已存在，这个命令会直接失败，避免覆盖你手上的配置
+
+### 5.2 默认模式
 
 ```bash
 ./markcompose.sh start [options] <markdown_dir>
@@ -163,19 +188,19 @@ cp .env.example .env
 - `https://github.com/T0n0T/markflow/releases/latest/download/markflow-dist.tar.gz`
 - `https://github.com/T0n0T/markwatch/releases/latest/download/markwatch-<target>.tar.gz`
 
-### 5.2 自定义 watcher
+### 5.3 自定义 watcher
 
 ```bash
 ./markcompose.sh start --use-custom-watcher <watcher_cmd> <markdown_dir>
 ```
 
-### 5.3 自定义 editor
+### 5.4 自定义 editor
 
 ```bash
 ./markcompose.sh start --use-custom-editor <editor_static_dir> <markdown_dir>
 ```
 
-### 5.4 自定义 editor + 自定义 watcher
+### 5.5 自定义 editor + 自定义 watcher
 
 ```bash
 ./markcompose.sh start \
@@ -184,7 +209,7 @@ cp .env.example .env
   <markdown_dir>
 ```
 
-### 5.5 常用选项
+### 5.6 常用选项
 
 - `-a, --assets-dir <dir>`：资源目录名，默认 `_assets`
 - `--content-adapter <script>`：启用 adapter
@@ -195,7 +220,7 @@ cp .env.example .env
 - `--reconcile-sec <num>`：默认 watcher 的 reconcile，默认 `600`
 - `--watch-log-level <level>`：默认 watcher 日志级别，默认 `info`
 
-### 5.6 watcher 注意事项
+### 5.7 watcher 注意事项
 
 - 自定义 watcher 模式下，`--debounce-ms` / `--reconcile-sec` / `--watch-log-level` 会被忽略
 - 自定义 watcher 最好保持为**单个前台命令**
@@ -207,6 +232,9 @@ cp .env.example .env
 ## 6. 最常用示例
 
 ```bash
+# 初始化站点骨架
+./markcompose.sh init-site
+
 # 默认启动
 ./markcompose.sh start /data/blog/markdown
 
@@ -309,7 +337,8 @@ cp .env.example .env
 
 ### 8.3 Hugo 启动补充
 
-- 如果 `./hugo-site` 不存在，会自动执行 `hugo new site hugo-site`
+- 如果 `./hugo-site` 不存在，构建流程仍会自动执行 `hugo new site hugo-site` 兜底
+- 但更推荐你先手动执行 `./markcompose.sh init-site`，这样可以在首次启动前先配置站点
 - 每次构建前，`./hugo-reuse/layouts/` 会同步到 `./hugo-site/layouts/`
 
 ---
@@ -412,6 +441,7 @@ http://127.0.0.1:<HOST_PORT>/waline/ui
 ## 11. 项目结构速览
 
 - `markcompose.sh`：根目录唯一入口
+- `scripts/init_site.sh`：初始化 `hugo-site` 的实现
 - `scripts/`：`start/build/stop` 的实际实现
 - `scripts/lib/`：共享 shell 模块
 - `adapter/`：可选内容适配器

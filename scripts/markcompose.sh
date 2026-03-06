@@ -9,12 +9,14 @@ Usage:
   markcompose.sh <command> [args]
 
 Commands:
-  start   Start services, build once, and optionally run watcher
-  build   Run the release build pipeline
-  stop    Stop services
-  help    Show this message
+  init-site  Initialize a fresh hugo-site skeleton with the Hugo image
+  start      Start services, build once, and optionally run watcher
+  build      Run the release build pipeline
+  stop       Stop services
+  help       Show this message
 
 Examples:
+  ./markcompose.sh init-site
   ./markcompose.sh start <markdown_path>
   ./markcompose.sh start --content-adapter adapter/prepare_content.sh <markdown_path>
   ./markcompose.sh build
@@ -25,6 +27,10 @@ EOF
 main() {
   local command="${1:-help}"
   case "${command}" in
+    init-site)
+      shift
+      exec "${SCRIPT_DIR}/init_site.sh" "$@"
+      ;;
     start)
       shift
       exec "${SCRIPT_DIR}/start.sh" "$@"
