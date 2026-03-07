@@ -1,0 +1,27 @@
+title: 推荐模板示例
+date: 2026-03-07T12:00:00Z
+draft: false
+slug: recommended-template-example
+type: posts
+
+description: 这是一份面向当前仓库的推荐 meta.yml 样例。
+tags:
+  - demo
+  - meta-yml
+  - template
+categories:
+  - 文档
+
+author: MarkCompose
+subtitle: 用于演示当前主题下较高性价比的元数据字段
+featuredimage: /images/article-cover.jpg
+
+license: CC BY-NC-SA 4.0
+linktomarkdown: true
+rssfulltext: false
+
+hiddenfromhomepage: false
+hiddenfromsearch: false
+
+toc: true
+comment: true
