@@ -136,8 +136,42 @@ mc::build::run_hugo_build_to_staging() {
   shift 5
   local build_cmd=""
 
-  build_cmd="$(cat <<EOF
+build_cmd="$(cat <<EOF
 set -eu
+
+copy_same_basename_attachments() {
+  local content_root="\$1"
+  local output_root="\$2"
+
+  [ -d "\${content_root}" ] || return 0
+
+  find "\${content_root}" -type f -name '*.md' | while IFS= read -r markdown_path; do
+    rel_path="\${markdown_path#\${content_root}/}"
+    rel_dir="\$(dirname "\${rel_path}")"
+    if [ "\${rel_dir}" = "." ]; then
+      rel_dir=""
+    fi
+    file_name="\$(basename "\${rel_path}")"
+    stem="\${file_name%.md}"
+    attachment_dir="\${content_root}/\${stem}"
+    if [ -n "\${rel_dir}" ]; then
+      attachment_dir="\${content_root}/\${rel_dir}/\${stem}"
+    fi
+    [ -d "\${attachment_dir}" ] || continue
+
+    find "\${attachment_dir}" -type f \\
+      ! -name '*.md' \\
+      ! -name '*.md.meta.yml' \\
+      ! -name '*.md.meta.yaml' \\
+      | while IFS= read -r asset_path; do
+        asset_rel_path="\${asset_path#\${content_root}/}"
+        dest_path="\${output_root}/\${asset_rel_path}"
+        mkdir -p "\$(dirname "\${dest_path}")"
+        cp -a "\${asset_path}" "\${dest_path}"
+      done
+  done
+}
+
 hugo \\
   --source /site \\
   --contentDir ${container_content_dir} \\
@@ -150,6 +184,8 @@ if [ -n "\${HUGO_ASSETS_DIR:-}" ] && [ -d "/markdown/\${HUGO_ASSETS_DIR}" ]; the
   mkdir -p "/out/\${HUGO_ASSETS_DIR}"
   cp -a "/markdown/\${HUGO_ASSETS_DIR}/." "/out/\${HUGO_ASSETS_DIR}/"
 fi
+
+copy_same_basename_attachments "${container_content_dir}" /out
 
 chown -R ${owner_uid_gid} /out
 EOF

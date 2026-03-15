@@ -2,6 +2,16 @@
 {{- $destination := .Destination -}}
 {{- $url := urls.Parse $destination -}}
 {{- $assetsPathPrefix := printf "%s/" $assetsDir -}}
+{{- $pageStem := "" -}}
+
+{{- with .Page.File -}}
+    {{- $fileName := path.Base .Path -}}
+    {{- if or (eq $fileName "index.md") (eq $fileName "_index.md") -}}
+        {{- $pageStem = path.Base (path.Dir .Path) -}}
+    {{- else -}}
+        {{- $pageStem = strings.TrimSuffix (path.Ext $fileName) $fileName -}}
+    {{- end -}}
+{{- end -}}
 
 {{- if not $url.Host -}}
     {{- $path := $url.Path -}}
@@ -15,6 +25,23 @@
         {{- end -}}
         {{- with $url.Fragment -}}
             {{- $destination = printf "%s#%s" $destination . -}}
+        {{- end -}}
+    {{- else if $pageStem -}}
+        {{- $trimmedPath := strings.TrimPrefix "./" $path -}}
+        {{- $legacyPrefix := printf "%s/" $pageStem -}}
+        {{- if strings.HasPrefix $trimmedPath $legacyPrefix -}}
+            {{- $path = strings.TrimPrefix $legacyPrefix $trimmedPath -}}
+            {{- if strings.HasPrefix $url.Path "./" -}}
+                {{- $destination = printf "./%s" $path -}}
+            {{- else -}}
+                {{- $destination = $path -}}
+            {{- end -}}
+            {{- with $url.RawQuery -}}
+                {{- $destination = printf "%s?%s" $destination . -}}
+            {{- end -}}
+            {{- with $url.Fragment -}}
+                {{- $destination = printf "%s#%s" $destination . -}}
+            {{- end -}}
         {{- end -}}
     {{- end -}}
 {{- end -}}

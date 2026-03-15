@@ -29,6 +29,7 @@ def kv(label: str, value: object) -> None:
 @dataclass
 class AdaptStats:
     files_written: int = 0
+    attachments_copied: int = 0
     sidecars_applied: int = 0
     stripped_h1: int = 0
     rewritten_link_docs: int = 0
@@ -52,6 +53,44 @@ def ensure_clean_dir(path: str) -> None:
 
 def to_posix(relpath: str) -> str:
     return relpath.replace(os.sep, "/")
+
+
+def map_path_via_prefixes(rel_path: str, prefix_map: dict[str, str]) -> str | None:
+    for source_prefix, output_prefix in sorted(prefix_map.items(), key=lambda item: len(item[0]), reverse=True):
+        if rel_path == source_prefix:
+            return output_prefix
+        prefix_with_sep = source_prefix + "/"
+        if rel_path.startswith(prefix_with_sep):
+            suffix = rel_path[len(prefix_with_sep) :]
+            return posixpath.join(output_prefix, suffix) if suffix else output_prefix
+    return None
+
+
+def resolve_output_rel_path_for_markdown(
+    source_rel_path: str,
+    *,
+    default_section: str,
+    attachment_dir_prefix_map: dict[str, str],
+) -> str:
+    mapped_path = map_path_via_prefixes(source_rel_path, attachment_dir_prefix_map)
+    if mapped_path:
+        return mapped_path
+
+    source_rel_dir = posixpath.dirname(source_rel_path)
+    source_base_name = posixpath.basename(source_rel_path)
+    if source_rel_dir == "":
+        return posixpath.join(default_section, source_base_name) if default_section else source_base_name
+    return source_rel_path
+
+
+def resolve_attachment_dir_rel(source_rel_path: str, *, input_dir: str) -> str | None:
+    source_rel_dir = posixpath.dirname(source_rel_path)
+    source_stem = posixpath.splitext(posixpath.basename(source_rel_path))[0]
+    attachment_dir_rel = posixpath.join(source_rel_dir, source_stem) if source_rel_dir else source_stem
+    attachment_dir_abs = os.path.join(input_dir, attachment_dir_rel.replace("/", os.sep))
+    if os.path.isdir(attachment_dir_abs):
+        return attachment_dir_rel
+    return None
 
 
 def list_markdown_files(input_dir: str, *, pic_dir: str, ignore_dirs: set[str]) -> list[str]:
@@ -408,6 +447,10 @@ def dump_front_matter_yaml(data: dict) -> str:
     return dumped + ("\n" if dumped else "")
 
 
+def is_markdown_sidecar(source_rel_path: str, sidecar_exts: list[str]) -> bool:
+    return any(source_rel_path.endswith(".md" + sidecar_ext) for sidecar_ext in sidecar_exts)
+
+
 def main() -> None:
     if len(sys.argv) != 4:
         die("Expected args: <input_dir> <output_dir> <config_toml>")
@@ -445,17 +488,34 @@ def main() -> None:
     source_markdown_files = list_markdown_files(input_dir, pic_dir=pic_dir, ignore_dirs=ignore_dirs)
     stats = AdaptStats()
 
-    # Build a mapping from input relpath -> output relpath (posix) for link rewriting.
+    source_markdown_rel_paths = [to_posix(os.path.relpath(source_path, input_dir)) for source_path in source_markdown_files]
+
+    # Map markdown files first, then reuse the same prefix map for sibling attachment dirs.
+    attachment_dir_prefix_map: dict[str, str] = {}
+    for source_rel_path in source_markdown_rel_paths:
+        output_rel_path = resolve_output_rel_path_for_markdown(
+            source_rel_path,
+            default_section=default_section,
+            attachment_dir_prefix_map=attachment_dir_prefix_map,
+        )
+
+        attachment_dir_rel = resolve_attachment_dir_rel(source_rel_path, input_dir=input_dir)
+        if not attachment_dir_rel:
+            continue
+        output_attachment_dir_rel = posixpath.join(
+            posixpath.dirname(output_rel_path),
+            posixpath.splitext(posixpath.basename(output_rel_path))[0],
+        )
+        attachment_dir_prefix_map[attachment_dir_rel] = output_attachment_dir_rel
+
+    # Final mapping from input relpath -> output relpath (posix) for markdown link rewriting.
     in_to_out_posix: dict[str, str] = {}
-    for source_path in source_markdown_files:
-        source_rel_path = to_posix(os.path.relpath(source_path, input_dir))
-        source_rel_dir = posixpath.dirname(source_rel_path)
-        source_base_name = posixpath.basename(source_rel_path)
-        if source_rel_dir == "":
-            output_rel_path = posixpath.join(default_section, source_base_name) if default_section else source_base_name
-        else:
-            output_rel_path = source_rel_path
-        in_to_out_posix[source_rel_path] = output_rel_path
+    for source_rel_path in source_markdown_rel_paths:
+        in_to_out_posix[source_rel_path] = resolve_output_rel_path_for_markdown(
+            source_rel_path,
+            default_section=default_section,
+            attachment_dir_prefix_map=attachment_dir_prefix_map,
+        )
 
     for source_path in source_markdown_files:
         source_rel_path = to_posix(os.path.relpath(source_path, input_dir))
@@ -506,8 +566,42 @@ def main() -> None:
             file_handle.write(rendered_output)
         stats.files_written += 1
 
+    copied_attachment_sources: set[str] = set()
+    for attachment_dir_rel in sorted(attachment_dir_prefix_map.keys(), key=len, reverse=True):
+        attachment_dir_abs = os.path.join(input_dir, attachment_dir_rel.replace("/", os.sep))
+        for root, dirs, files in os.walk(attachment_dir_abs, topdown=True):
+            pruned_dirs: list[str] = []
+            for dir_name in dirs:
+                if dir_name == pic_dir:
+                    continue
+                if dir_name in ignore_dirs:
+                    continue
+                pruned_dirs.append(dir_name)
+            dirs[:] = pruned_dirs
+
+            for file_name in files:
+                source_path = os.path.join(root, file_name)
+                source_rel_path = to_posix(os.path.relpath(source_path, input_dir))
+                if source_rel_path in copied_attachment_sources:
+                    continue
+                if source_rel_path.lower().endswith(".md"):
+                    continue
+                if is_markdown_sidecar(source_rel_path, sidecar_exts):
+                    continue
+
+                output_rel_path = map_path_via_prefixes(source_rel_path, attachment_dir_prefix_map)
+                if not output_rel_path:
+                    continue
+
+                output_path = os.path.join(output_dir, output_rel_path.replace("/", os.sep))
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                shutil.copy2(source_path, output_path)
+                copied_attachment_sources.add(source_rel_path)
+                stats.attachments_copied += 1
+
     info("Adaptation summary")
     kv("Markdown", stats.files_written)
+    kv("Attachments", stats.attachments_copied)
     kv("Sidecars", stats.sidecars_applied)
     kv("H1 stripped", stats.stripped_h1)
     kv("Links fixed", stats.rewritten_link_docs)
